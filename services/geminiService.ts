@@ -1,5 +1,12 @@
 import { GoogleGenAI, Type, Schema, FunctionDeclaration } from '@google/genai';
-import { LyricLine, SongMetadata, ImageSize, AspectRatio } from '../types';
+import {
+  LyricLine,
+  SongMetadata,
+  ImageSize,
+  AspectRatio,
+  Genre,
+  GenreDetectionResult,
+} from '../types';
 
 // Helper to base64 encode
 const fileToBase64 = (file: File): Promise<string> => {
@@ -277,4 +284,168 @@ export const transcribeMicrophone = async (audioBlob: Blob): Promise<string> => 
     },
   });
   return response.text || '';
+};
+
+// 7. Detect Music Genre
+export const detectMusicGenre = async (audioFile: File): Promise<GenreDetectionResult> => {
+  const ai = await getAI();
+  const base64Audio = await fileToBase64(audioFile);
+
+  const responseSchema: Schema = {
+    type: Type.OBJECT,
+    properties: {
+      genre: {
+        type: Type.STRING,
+        enum: Object.values(Genre),
+        description: 'The primary detected music genre',
+      },
+      confidence: {
+        type: Type.NUMBER,
+        description: 'Confidence level from 0 to 1',
+      },
+      suggestedStyle: {
+        type: Type.STRING,
+        description: 'Recommended visual style for this genre (e.g., neon, vintage, elegant)',
+      },
+      mood: {
+        type: Type.STRING,
+        description: 'The overall mood of the track (e.g., energetic, melancholic, uplifting)',
+      },
+      subgenres: {
+        type: Type.ARRAY,
+        items: { type: Type.STRING },
+        description: 'Secondary genres or subgenres detected',
+      },
+      tempo: {
+        type: Type.STRING,
+        enum: ['slow', 'medium', 'fast'],
+        description: 'General tempo of the track',
+      },
+      energy: {
+        type: Type.STRING,
+        enum: ['low', 'medium', 'high'],
+        description: 'Energy level of the track',
+      },
+    },
+    required: ['genre', 'confidence', 'suggestedStyle', 'mood'],
+  };
+
+  const response = await ai.models.generateContent({
+    model: 'gemini-3-flash-preview',
+    contents: {
+      parts: [
+        { inlineData: { mimeType: audioFile.type, data: base64Audio } },
+        {
+          text: `Analyze this audio track and determine its music genre. Consider:
+1. The primary genre (hiphop, rock, electronic, classical, pop, indie, rnb, jazz, country, metal)
+2. Your confidence level in this classification (0 to 1)
+3. A visual style that would complement this genre for a lyric video
+4. The overall mood and energy of the track
+5. Any secondary genres or subgenres
+
+Focus on the musical characteristics: instruments, rhythm, vocal style, production techniques.`,
+        },
+      ],
+    },
+    config: {
+      responseMimeType: 'application/json',
+      responseSchema: responseSchema,
+    },
+  });
+
+  const json = JSON.parse(response.text || '{}');
+
+  // Map string genre to Genre enum
+  const genreMap: Record<string, Genre> = {
+    hiphop: Genre.HIPHOP,
+    rock: Genre.ROCK,
+    electronic: Genre.ELECTRONIC,
+    classical: Genre.CLASSICAL,
+    pop: Genre.POP,
+    indie: Genre.INDIE,
+    rnb: Genre.RNB,
+    jazz: Genre.JAZZ,
+    country: Genre.COUNTRY,
+    metal: Genre.METAL,
+  };
+
+  return {
+    genre: genreMap[json.genre?.toLowerCase()] || Genre.POP,
+    confidence: json.confidence || 0.5,
+    suggestedStyle: json.suggestedStyle || 'modern',
+    mood: json.mood || 'neutral',
+  };
+};
+
+// 8. Get Visual Recommendations Based on Audio
+export const getVisualRecommendations = async (
+  audioFile: File
+): Promise<{
+  backgroundStyle: string;
+  colorPalette: string[];
+  textEffects: string[];
+  mood: string;
+}> => {
+  const ai = await getAI();
+  const base64Audio = await fileToBase64(audioFile);
+
+  const responseSchema: Schema = {
+    type: Type.OBJECT,
+    properties: {
+      backgroundStyle: {
+        type: Type.STRING,
+        description: 'Recommended background effect style',
+      },
+      colorPalette: {
+        type: Type.ARRAY,
+        items: { type: Type.STRING },
+        description: 'Array of 5 hex color codes that match the music',
+      },
+      textEffects: {
+        type: Type.ARRAY,
+        items: { type: Type.STRING },
+        description: 'Recommended text/lyric effect names',
+      },
+      mood: {
+        type: Type.STRING,
+        description: 'Overall mood description',
+      },
+      visualNotes: {
+        type: Type.STRING,
+        description: 'Additional visual direction notes',
+      },
+    },
+    required: ['backgroundStyle', 'colorPalette', 'textEffects', 'mood'],
+  };
+
+  const response = await ai.models.generateContent({
+    model: 'gemini-3-flash-preview',
+    contents: {
+      parts: [
+        { inlineData: { mimeType: audioFile.type, data: base64Audio } },
+        {
+          text: `Analyze this music and recommend visual effects for a lyric video:
+1. Background style (e.g., synthwave grid, gentle bokeh, aggressive rock, urban geometric)
+2. A color palette of 5 hex codes that match the mood
+3. Text animation effects that would complement the rhythm (e.g., wave, bounce, glitch, fade)
+4. Overall mood description
+
+Consider the tempo, instruments, vocal style, and emotional content.`,
+        },
+      ],
+    },
+    config: {
+      responseMimeType: 'application/json',
+      responseSchema: responseSchema,
+    },
+  });
+
+  const json = JSON.parse(response.text || '{}');
+
+  return {
+    backgroundStyle: json.backgroundStyle || 'modern',
+    colorPalette: json.colorPalette || ['#FF00FF', '#00FFFF', '#FFFF00', '#FF0066', '#00FF99'],
+    textEffects: json.textEffects || ['wave', 'fade'],
+    mood: json.mood || 'neutral',
+  };
 };

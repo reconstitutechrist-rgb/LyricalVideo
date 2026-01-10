@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   ArrowUpTrayIcon,
   PlayIcon,
@@ -35,7 +35,10 @@ import {
   generateVideoBackground,
   transcribeMicrophone,
   analyzeImage,
+  detectMusicGenre,
 } from './services/geminiService';
+import { initializeEffects } from './src/effects';
+import { EffectPanel } from './src/components/EffectPanel';
 import {
   AppState,
   LyricLine,
@@ -52,6 +55,7 @@ import {
   EasingType,
   MotionPreset,
 } from './types';
+import type { Genre, EffectInstanceConfig } from './types';
 
 // Motion Presets Definition
 const MOTION_PRESETS: MotionPreset[] = [
@@ -166,7 +170,20 @@ const App = () => {
       },
     },
     audioBuffer: null,
+    // Effect system state
+    lyricEffects: [],
+    backgroundEffects: [],
+    detectedGenre: null,
+    genreOverride: null,
   });
+
+  // State for genre detection status
+  const [isDetectingGenre, setIsDetectingGenre] = useState(false);
+
+  // Initialize effects system on mount
+  useEffect(() => {
+    initializeEffects();
+  }, []);
 
   const [isProcessing, setIsProcessing] = useState(false);
   const [chatOpen, setChatOpen] = useState(true);
@@ -235,6 +252,30 @@ const App = () => {
           timestamp: new Date(),
         },
       ]);
+
+      // Trigger genre detection in background
+      setIsDetectingGenre(true);
+      detectMusicGenre(file)
+        .then((result) => {
+          setState((prev) => ({
+            ...prev,
+            detectedGenre: result.genre,
+          }));
+          setChatMessages((prev) => [
+            ...prev,
+            {
+              role: 'model',
+              text: `Genre detected: ${result.genre} (${Math.round(result.confidence * 100)}% confidence). Mood: ${result.mood}`,
+              timestamp: new Date(),
+            },
+          ]);
+        })
+        .catch((err) => {
+          console.error('Genre detection failed:', err);
+        })
+        .finally(() => {
+          setIsDetectingGenre(false);
+        });
     } catch (err) {
       console.error(err);
       setChatMessages((prev) => [
@@ -986,11 +1027,33 @@ const App = () => {
             </div>
           </div>
 
-          {/* 4. LYRICS EDITOR */}
+          {/* 4. EFFECT STUDIO */}
+          <div className="space-y-3 pt-4 border-t border-white/10">
+            <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+              04. Effect Studio
+            </h3>
+            <EffectPanel
+              lyricEffects={state.lyricEffects}
+              backgroundEffects={state.backgroundEffects}
+              detectedGenre={state.detectedGenre}
+              genreConfidence={0.85}
+              genreOverride={state.genreOverride}
+              isDetectingGenre={isDetectingGenre}
+              onLyricEffectsChange={(effects) =>
+                setState((prev) => ({ ...prev, lyricEffects: effects }))
+              }
+              onBackgroundEffectsChange={(effects) =>
+                setState((prev) => ({ ...prev, backgroundEffects: effects }))
+              }
+              onGenreOverride={(genre) => setState((prev) => ({ ...prev, genreOverride: genre }))}
+            />
+          </div>
+
+          {/* 5. LYRICS EDITOR */}
           <div className="space-y-2 pt-4 border-t border-white/10">
             <div className="flex justify-between items-center">
               <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-                04. Timeline
+                05. Timeline
               </h3>
               <button
                 onClick={() => {
@@ -1486,6 +1549,9 @@ const App = () => {
               selectedLyricIndices.size === 1 ? Array.from(selectedLyricIndices)[0] : null
             }
             onKeyframeUpdate={onKeyframePositionUpdate}
+            lyricEffects={state.lyricEffects}
+            backgroundEffects={state.backgroundEffects}
+            activeGenre={state.genreOverride ?? state.detectedGenre}
           />
 
           {/* Playback Controls Overlay */}

@@ -10,7 +10,14 @@ export interface LyricLine {
   keyframes?: TextKeyframe[];
 }
 
-export type EasingType = 'linear' | 'easeIn' | 'easeOut' | 'easeInOut' | 'bounce';
+export type EasingType =
+  | 'linear'
+  | 'easeIn'
+  | 'easeOut'
+  | 'easeInOut'
+  | 'bounce'
+  | 'elastic'
+  | 'back';
 
 export interface TextKeyframe {
   time: number; // 0.0 to 1.0 (normalized progress)
@@ -119,6 +126,51 @@ export interface AppState {
   isPlaying: boolean;
   isRecording: boolean;
   aspectRatio: AspectRatio;
-  visualSettings: VisualSettings; // New field
-  audioBuffer: AudioBuffer | null; // Added for waveform
+  visualSettings: VisualSettings;
+  audioBuffer: AudioBuffer | null;
+  // Effect system state
+  lyricEffects: EffectInstanceConfig[];
+  backgroundEffects: EffectInstanceConfig[];
+  detectedGenre: Genre | null;
+  genreOverride: Genre | null;
 }
+
+/**
+ * Music Genre for genre-aware effects
+ */
+export enum Genre {
+  HIPHOP = 'hiphop',
+  ROCK = 'rock',
+  ELECTRONIC = 'electronic',
+  CLASSICAL = 'classical',
+  POP = 'pop',
+  INDIE = 'indie',
+  RNB = 'rnb',
+  JAZZ = 'jazz',
+  COUNTRY = 'country',
+  METAL = 'metal',
+}
+
+/**
+ * Genre detection result from AI
+ */
+export interface GenreDetectionResult {
+  genre: Genre;
+  confidence: number;
+  suggestedStyle: string;
+  mood: string;
+}
+
+/**
+ * Effect instance configuration for state management
+ */
+export interface EffectInstanceConfig {
+  effectId: string;
+  parameters: Record<string, number | string | boolean>;
+  enabled: boolean;
+}
+
+/**
+ * Effect parameter value types
+ */
+export type EffectParameterValue = number | string | boolean;

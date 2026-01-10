@@ -8,7 +8,11 @@ import {
   ColorPalette,
   FrequencyBand,
   EasingType,
+  EffectInstanceConfig,
+  Genre,
 } from '../types';
+import { EffectRegistry, EffectComposer } from '../src/effects/core';
+import { EffectContext, LyricEffectContext } from '../src/effects/core/Effect';
 
 interface VisualizerProps {
   audioUrl: string | null;
@@ -27,6 +31,10 @@ interface VisualizerProps {
   activeKeyframeIndex: number | null;
   selectedLyricIndex: number | null;
   onKeyframeUpdate: (lyricIndex: number, kfIndex: number, x: number, y: number) => void;
+  // Effect system props
+  lyricEffects?: EffectInstanceConfig[];
+  backgroundEffects?: EffectInstanceConfig[];
+  activeGenre?: Genre | null;
 }
 
 // Particle Class
@@ -138,6 +146,16 @@ const Easings: Record<EasingType, (t: number) => number> = {
     if (t < 2.5 / d1) return n1 * (t -= 2.25 / d1) * t + 0.9375;
     return n1 * (t -= 2.625 / d1) * t + 0.984375;
   },
+  elastic: (t) => {
+    if (t === 0 || t === 1) return t;
+    const p = 0.3;
+    const s = p / 4;
+    return Math.pow(2, -10 * t) * Math.sin(((t - s) * (2 * Math.PI)) / p) + 1;
+  },
+  back: (t) => {
+    const s = 1.70158;
+    return t * t * ((s + 1) * t - s);
+  },
 };
 
 const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
@@ -158,6 +176,9 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
       activeKeyframeIndex,
       selectedLyricIndex,
       onKeyframeUpdate,
+      lyricEffects = [],
+      backgroundEffects = [],
+      activeGenre: _activeGenre,
     },
     ref
   ) => {
@@ -171,6 +192,10 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
     const bgImageRef = useRef<HTMLImageElement | null>(null);
     const prevPaletteRef = useRef<ColorPalette>(settings.palette);
     const prevSentimentRef = useRef<string | undefined>(undefined);
+
+    // Effect system refs
+    const lyricComposerRef = useRef<EffectComposer | null>(null);
+    const backgroundComposerRef = useRef<EffectComposer | null>(null);
 
     const [isBgLoading, setIsBgLoading] = useState(false);
 
@@ -327,6 +352,57 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
         }
       }
     }, [isPlaying]);
+
+    // Sync effect composers with effect configs
+    useEffect(() => {
+      // Initialize or update lyric effects composer
+      if (lyricEffects.length > 0) {
+        if (!lyricComposerRef.current) {
+          lyricComposerRef.current = new EffectComposer();
+        }
+        // Clear and re-add effects based on config
+        lyricComposerRef.current.clear();
+        lyricEffects.forEach((config) => {
+          if (config.enabled) {
+            const effect = EffectRegistry.createLyricEffect(config.effectId);
+            if (effect) {
+              // Apply parameters
+              Object.entries(config.parameters).forEach(([key, value]) => {
+                effect.setParameter(key, value as string | number | boolean);
+              });
+              lyricComposerRef.current?.addEffect(effect);
+            }
+          }
+        });
+      } else {
+        lyricComposerRef.current?.clear();
+      }
+    }, [lyricEffects]);
+
+    useEffect(() => {
+      // Initialize or update background effects composer
+      if (backgroundEffects.length > 0) {
+        if (!backgroundComposerRef.current) {
+          backgroundComposerRef.current = new EffectComposer();
+        }
+        // Clear and re-add effects based on config
+        backgroundComposerRef.current.clear();
+        backgroundEffects.forEach((config) => {
+          if (config.enabled) {
+            const effect = EffectRegistry.createBackgroundEffect(config.effectId);
+            if (effect) {
+              // Apply parameters
+              Object.entries(config.parameters).forEach(([key, value]) => {
+                effect.setParameter(key, value as string | number | boolean);
+              });
+              backgroundComposerRef.current?.addEffect(effect);
+            }
+          }
+        });
+      } else {
+        backgroundComposerRef.current?.clear();
+      }
+    }, [backgroundEffects]);
 
     const draw = () => {
       const canvas = canvasRef.current;
@@ -680,6 +756,27 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
         }
       }
 
+      // Render background effects from the effects system
+      if (backgroundComposerRef.current && backgroundEffects.length > 0) {
+        const bgContext: EffectContext = {
+          ctx,
+          width,
+          height,
+          currentTime,
+          deltaTime: 0.016,
+          audioData: {
+            bass: bassFreq,
+            mid: midFreq,
+            treble: trebleFreq,
+            average: averageFreq,
+            raw: dataArrayRef.current || new Uint8Array(128),
+          },
+          settings,
+          palette: effectivePalette,
+        };
+        backgroundComposerRef.current.renderBackground(bgContext);
+      }
+
       // NOTE: Removed restore() here to keep shake context for lyrics
 
       // Transition Logic
@@ -806,15 +903,55 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
           ctx.restore();
         }
 
-        // Standard Text Rendering (Simplified for brevity, keeping existing logic)
-        ctx.fillStyle = textColor;
-        ctx.shadowColor = glowColor;
-        ctx.shadowBlur =
-          styleForLine === VisualStyle.CINEMATIC_BACKDROP
-            ? 20 * settings.intensity
-            : 15 * settings.intensity;
+        // Check if we have lyric effects to apply
+        const hasLyricEffects = lyricComposerRef.current && lyricEffects.length > 0;
 
-        ctx.fillText(line.text, 0, 0);
+        if (hasLyricEffects) {
+          // Calculate progress through the lyric
+          const lineDuration = line.endTime - line.startTime;
+          const elapsed = currentTime - line.startTime;
+          const lyricProgress =
+            lineDuration > 0 ? Math.max(0, Math.min(1, elapsed / lineDuration)) : 0;
+
+          // Create lyric effect context
+          const lyricContext: LyricEffectContext = {
+            ctx,
+            width,
+            height,
+            currentTime,
+            deltaTime: 0.016, // ~60fps
+            audioData: {
+              bass: bassFreq,
+              mid: midFreq,
+              treble: trebleFreq,
+              average: averageFreq,
+              raw: dataArrayRef.current || new Uint8Array(128),
+            },
+            settings,
+            palette: paletteForLine,
+            lyric: line,
+            progress: lyricProgress,
+            text: line.text,
+            x: 0, // Centered
+            y: 0, // Centered
+            fontSize,
+            fontFamily: settings.fontFamily,
+            color: textColor,
+          };
+
+          // Render using lyric effect composer
+          lyricComposerRef.current!.renderLyric(lyricContext);
+        } else {
+          // Standard Text Rendering (fallback when no effects)
+          ctx.fillStyle = textColor;
+          ctx.shadowColor = glowColor;
+          ctx.shadowBlur =
+            styleForLine === VisualStyle.CINEMATIC_BACKDROP
+              ? 20 * settings.intensity
+              : 15 * settings.intensity;
+
+          ctx.fillText(line.text, 0, 0);
+        }
 
         ctx.restore();
       };
