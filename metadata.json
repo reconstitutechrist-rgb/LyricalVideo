@@ -1,0 +1,5 @@
+{
+  "name": "Lyrical Flow AI",
+  "description": "Create epic, AI-powered lyrical music videos with reactive visuals, automated transcription, and conversational editing.",
+  "requestFramePermissions": ["microphone"]
+}

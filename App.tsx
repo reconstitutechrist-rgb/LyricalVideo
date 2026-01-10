@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   ArrowUpTrayIcon,
   PlayIcon,
@@ -15,8 +15,6 @@ import {
   CheckCircleIcon,
   ClockIcon,
   ListBulletIcon,
-  PaintBrushIcon,
-  SwatchIcon,
   XMarkIcon,
   EyeDropperIcon,
   LanguageIcon,
@@ -185,6 +183,13 @@ const App = () => {
   const [showGenModal, setShowGenModal] = useState<'image' | 'video' | null>(null);
   const [genPrompt, setGenPrompt] = useState('');
   const [targetSize, setTargetSize] = useState<ImageSize>('1K');
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [genAspectRatio, setGenAspectRatio] = useState<'16:9' | '9:16'>('16:9');
+
+  // Mic Recording State
+  const [isRecordingMic, setIsRecordingMic] = useState(false);
+  const micRecorderRef = useRef<MediaRecorder | null>(null);
+  const micChunksRef = useRef<Blob[]>([]);
 
   // Editing State
   const [editMode, setEditMode] = useState(false);
@@ -414,6 +419,181 @@ const App = () => {
     updateKeyframe(lyricIndex, kfIndex, 'y', y);
   };
 
+  // Handle background generation (image or video)
+  const handleGenerate = async () => {
+    if (!genPrompt.trim()) return;
+    setIsGenerating(true);
+
+    try {
+      if (showGenModal === 'image') {
+        const url = await generateBackground(genPrompt, state.aspectRatio, targetSize);
+        setState((prev) => ({
+          ...prev,
+          backgroundAsset: { type: 'image', url, prompt: genPrompt },
+        }));
+        setChatMessages((prev) => [
+          ...prev,
+          {
+            role: 'model',
+            text: `Generated background image: "${genPrompt}"`,
+            timestamp: new Date(),
+          },
+        ]);
+      } else if (showGenModal === 'video') {
+        const url = await generateVideoBackground(genPrompt, genAspectRatio);
+        setState((prev) => ({
+          ...prev,
+          backgroundAsset: { type: 'video', url, prompt: genPrompt },
+        }));
+        setChatMessages((prev) => [
+          ...prev,
+          {
+            role: 'model',
+            text: `Generated background video: "${genPrompt}"`,
+            timestamp: new Date(),
+          },
+        ]);
+      }
+      setShowGenModal(null);
+      setGenPrompt('');
+    } catch (err) {
+      console.error(err);
+      setChatMessages((prev) => [
+        ...prev,
+        { role: 'model', text: 'Failed to generate. Please try again.', timestamp: new Date() },
+      ]);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  // Handle recording start/stop
+  const startRecording = () => {
+    if (!canvasRef.current || !mediaStreamDestRef.current) return;
+
+    const canvasStream = canvasRef.current.captureStream(30);
+    const audioStream = mediaStreamDestRef.current.stream;
+
+    // Combine canvas video with audio
+    const combinedStream = new MediaStream([
+      ...canvasStream.getVideoTracks(),
+      ...audioStream.getAudioTracks(),
+    ]);
+
+    const recorder = new MediaRecorder(combinedStream, { mimeType: 'video/webm' });
+    recordedChunksRef.current = [];
+
+    recorder.ondataavailable = (e) => {
+      if (e.data.size > 0) {
+        recordedChunksRef.current.push(e.data);
+      }
+    };
+
+    recorder.onstop = () => {
+      const blob = new Blob(recordedChunksRef.current, { type: 'video/webm' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `lyrical-flow-${Date.now()}.webm`;
+      a.click();
+      URL.revokeObjectURL(url);
+    };
+
+    mediaRecorderRef.current = recorder;
+    recorder.start();
+    setState((prev) => ({ ...prev, isRecording: true }));
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
+    setState((prev) => ({ ...prev, isRecording: false }));
+  };
+
+  // Handle microphone transcription
+  const startMicRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      micChunksRef.current = [];
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          micChunksRef.current.push(e.data);
+        }
+      };
+
+      recorder.onstop = async () => {
+        const blob = new Blob(micChunksRef.current, { type: 'audio/webm' });
+        stream.getTracks().forEach((track) => track.stop());
+
+        setIsProcessing(true);
+        try {
+          const transcription = await transcribeMicrophone(blob);
+          setState((prev) => ({
+            ...prev,
+            userProvidedLyrics: prev.userProvidedLyrics
+              ? `${prev.userProvidedLyrics}\n${transcription}`
+              : transcription,
+          }));
+          setChatMessages((prev) => [
+            ...prev,
+            { role: 'model', text: `Transcribed: "${transcription}"`, timestamp: new Date() },
+          ]);
+        } catch (err) {
+          console.error(err);
+          setChatMessages((prev) => [
+            ...prev,
+            { role: 'model', text: 'Failed to transcribe audio.', timestamp: new Date() },
+          ]);
+        } finally {
+          setIsProcessing(false);
+        }
+      };
+
+      micRecorderRef.current = recorder;
+      recorder.start();
+      setIsRecordingMic(true);
+    } catch (err) {
+      console.error('Mic access denied:', err);
+      setChatMessages((prev) => [
+        ...prev,
+        { role: 'model', text: 'Microphone access denied.', timestamp: new Date() },
+      ]);
+    }
+  };
+
+  const stopMicRecording = () => {
+    if (micRecorderRef.current && micRecorderRef.current.state !== 'inactive') {
+      micRecorderRef.current.stop();
+    }
+    setIsRecordingMic(false);
+  };
+
+  // Handle image analysis
+  const handleImageAnalysis = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsProcessing(true);
+    try {
+      const analysis = await analyzeImage(file);
+      setChatMessages((prev) => [
+        ...prev,
+        { role: 'model', text: `Image Analysis:\n${analysis}`, timestamp: new Date() },
+      ]);
+    } catch (err) {
+      console.error(err);
+      setChatMessages((prev) => [
+        ...prev,
+        { role: 'model', text: 'Failed to analyze image.', timestamp: new Date() },
+      ]);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   return (
     <div className="flex h-screen w-full bg-[#0f172a] text-white overflow-hidden font-sans">
       {/* BACKGROUND AMBIENCE */}
@@ -466,6 +646,32 @@ const App = () => {
                 />
               </label>
             </div>
+
+            {/* Mic & Image Analysis Buttons */}
+            <div className="flex gap-2">
+              <button
+                onClick={isRecordingMic ? stopMicRecording : startMicRecording}
+                className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-medium transition-all border ${
+                  isRecordingMic
+                    ? 'bg-red-500/20 border-red-500 text-red-300 animate-mic-pulse'
+                    : 'bg-slate-800 border-white/10 text-slate-400 hover:bg-slate-700 hover:text-white'
+                }`}
+              >
+                <MicrophoneIcon className="w-4 h-4" />
+                {isRecordingMic ? 'Stop' : 'Speak Lyrics'}
+              </button>
+
+              <label className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-medium bg-slate-800 border border-white/10 text-slate-400 hover:bg-slate-700 hover:text-white cursor-pointer transition-all">
+                <EyeDropperIcon className="w-4 h-4" />
+                Analyze Image
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleImageAnalysis}
+                  className="hidden"
+                />
+              </label>
+            </div>
           </div>
 
           {/* 2. VISUAL DIRECTION */}
@@ -499,6 +705,24 @@ const App = () => {
                   {ar}
                 </button>
               ))}
+            </div>
+
+            {/* Generate Background Button */}
+            <div className="flex gap-2 mt-3">
+              <button
+                onClick={() => setShowGenModal('image')}
+                className="flex-1 flex items-center justify-center gap-2 py-2 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 rounded-lg text-xs font-medium transition-all"
+              >
+                <PhotoIcon className="w-4 h-4" />
+                Generate BG
+              </button>
+              <button
+                onClick={() => setShowGenModal('video')}
+                className="flex-1 flex items-center justify-center gap-2 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 rounded-lg text-xs font-medium transition-all"
+              >
+                <VideoCameraIcon className="w-4 h-4" />
+                Generate Video
+              </button>
             </div>
           </div>
 
@@ -679,6 +903,87 @@ const App = () => {
                 ></div>
               </button>
             </div>
+
+            {/* Advanced Audio Reactivity */}
+            <div className="mt-3 p-2 bg-white/5 rounded border border-white/5 space-y-2">
+              <div className="flex items-center gap-2 mb-1">
+                <SpeakerWaveIcon className="w-3 h-3 text-slate-400" />
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                  Frequency Mapping
+                </span>
+              </div>
+
+              {/* Pulse Mapping */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1">
+                  <BoltIcon className="w-3 h-3 text-pink-400" />
+                  <span className="text-[10px] text-slate-400">Pulse</span>
+                </div>
+                <select
+                  value={state.visualSettings.frequencyMapping.pulse}
+                  onChange={(e) => updateFrequencyMapping('pulse', e.target.value as FrequencyBand)}
+                  className="bg-black/50 border border-white/10 rounded px-2 py-0.5 text-[10px] text-slate-300 outline-none"
+                >
+                  {freqBands.map((band) => (
+                    <option key={band} value={band}>
+                      {band}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Motion Mapping */}
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] text-slate-400 pl-4">Motion</span>
+                <select
+                  value={state.visualSettings.frequencyMapping.motion}
+                  onChange={(e) =>
+                    updateFrequencyMapping('motion', e.target.value as FrequencyBand)
+                  }
+                  className="bg-black/50 border border-white/10 rounded px-2 py-0.5 text-[10px] text-slate-300 outline-none"
+                >
+                  {freqBands.map((band) => (
+                    <option key={band} value={band}>
+                      {band}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Color Mapping */}
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] text-slate-400 pl-4">Color</span>
+                <select
+                  value={state.visualSettings.frequencyMapping.color}
+                  onChange={(e) => updateFrequencyMapping('color', e.target.value as FrequencyBand)}
+                  className="bg-black/50 border border-white/10 rounded px-2 py-0.5 text-[10px] text-slate-300 outline-none"
+                >
+                  {freqBands.map((band) => (
+                    <option key={band} value={band}>
+                      {band}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Blend Mode */}
+              <div className="flex items-center justify-between pt-2 border-t border-white/5">
+                <span className="text-[10px] text-slate-400">Blend Mode</span>
+                <select
+                  value={state.visualSettings.backgroundBlendMode}
+                  onChange={(e) =>
+                    updateVisualSetting('backgroundBlendMode', e.target.value as BlendMode)
+                  }
+                  className="bg-black/50 border border-white/10 rounded px-2 py-0.5 text-[10px] text-slate-300 outline-none"
+                >
+                  {blendModes.map((mode) => (
+                    <option key={mode} value={mode}>
+                      {mode}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
           </div>
 
           {/* 4. LYRICS EDITOR */}
@@ -702,7 +1007,6 @@ const App = () => {
             {/* Bulk Action Bar */}
             {editMode && (
               <div className="p-2 bg-slate-800/50 rounded-lg border border-white/5 space-y-2 animate-fadeIn">
-                {/* ... Bulk controls ... */}
                 <div className="flex justify-between items-center text-[10px]">
                   <button
                     onClick={selectAllLyrics}
@@ -715,7 +1019,91 @@ const App = () => {
                   </button>
                   <span className="text-slate-500">{selectedLyricIndices.size} selected</span>
                 </div>
-                {/* ... */}
+
+                {/* Time Shift Controls */}
+                {selectedLyricIndices.size > 0 && (
+                  <div className="space-y-2 pt-2 border-t border-white/5 animate-fadeIn">
+                    <div className="flex items-center gap-2">
+                      <ClockIcon className="w-3 h-3 text-slate-400" />
+                      <span className="text-[10px] text-slate-400">Time Shift (sec)</span>
+                    </div>
+                    <div className="flex gap-1">
+                      <input
+                        type="number"
+                        step="0.1"
+                        value={bulkTimeShift}
+                        onChange={(e) => setBulkTimeShift(e.target.value)}
+                        className="flex-1 bg-black/50 border border-white/10 rounded px-2 py-1 text-[10px] text-cyan-400 w-16"
+                        placeholder="0.1"
+                      />
+                      <button
+                        onClick={applyBulkTimeShift}
+                        className="px-2 py-1 bg-cyan-600 hover:bg-cyan-500 text-white text-[10px] rounded font-medium"
+                      >
+                        Apply
+                      </button>
+                    </div>
+
+                    {/* Text Transform */}
+                    <div className="flex items-center gap-1 pt-2">
+                      <span className="text-[10px] text-slate-400 mr-1">Text:</span>
+                      <button
+                        onClick={() => applyTextTransform('upper')}
+                        className="px-2 py-1 bg-slate-700 hover:bg-slate-600 text-[9px] rounded text-slate-300"
+                      >
+                        UPPER
+                      </button>
+                      <button
+                        onClick={() => applyTextTransform('lower')}
+                        className="px-2 py-1 bg-slate-700 hover:bg-slate-600 text-[9px] rounded text-slate-300"
+                      >
+                        lower
+                      </button>
+                      <button
+                        onClick={() => applyTextTransform('capitalize')}
+                        className="px-2 py-1 bg-slate-700 hover:bg-slate-600 text-[9px] rounded text-slate-300"
+                      >
+                        Title
+                      </button>
+                    </div>
+
+                    {/* Style Override */}
+                    <div className="flex flex-col gap-1 pt-2">
+                      <span className="text-[10px] text-slate-400">Style Override</span>
+                      <select
+                        onChange={(e) => applyOverride('style', e.target.value || undefined)}
+                        className="bg-black/50 border border-white/10 rounded px-2 py-1 text-[10px] text-slate-300 outline-none"
+                        defaultValue=""
+                      >
+                        <option value="">No Override</option>
+                        {Object.values(VisualStyle).map((s) => (
+                          <option key={s} value={s}>
+                            {s.replace('_', ' ')}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Palette Override */}
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[10px] text-slate-400">Palette Override</span>
+                      <select
+                        onChange={(e) => applyOverride('palette', e.target.value || undefined)}
+                        className="bg-black/50 border border-white/10 rounded px-2 py-1 text-[10px] text-slate-300 outline-none"
+                        defaultValue=""
+                      >
+                        <option value="">No Override</option>
+                        {(['neon', 'sunset', 'ocean', 'matrix', 'fire'] as ColorPalette[]).map(
+                          (p) => (
+                            <option key={p} value={p}>
+                              {p}
+                            </option>
+                          )
+                        )}
+                      </select>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -1146,6 +1534,24 @@ const App = () => {
                 </span>
               </div>
             </div>
+
+            {/* Record Button */}
+            <button
+              onClick={state.isRecording ? stopRecording : startRecording}
+              disabled={!state.audioUrl}
+              className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs font-medium transition-all ${
+                state.isRecording
+                  ? 'bg-red-500 text-white animate-record-pulse'
+                  : state.audioUrl
+                    ? 'bg-slate-700 hover:bg-red-600 text-slate-300 hover:text-white'
+                    : 'bg-slate-800 text-slate-500 cursor-not-allowed'
+              }`}
+            >
+              <div
+                className={`w-3 h-3 rounded-full ${state.isRecording ? 'bg-white' : 'bg-red-500'}`}
+              ></div>
+              {state.isRecording ? 'Stop' : 'Record'}
+            </button>
           </div>
 
           {/* Chat Toggle */}
@@ -1278,6 +1684,126 @@ const App = () => {
           </div>
         )}
       </div>
+
+      {/* GENERATION MODAL */}
+      {showGenModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+          <div className="bg-slate-900 border border-white/10 rounded-2xl w-full max-w-md p-6 shadow-2xl animate-fadeIn">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-bold flex items-center gap-2">
+                {showGenModal === 'image' ? (
+                  <>
+                    <PhotoIcon className="w-5 h-5 text-purple-400" />
+                    Generate Image
+                  </>
+                ) : (
+                  <>
+                    <FilmIcon className="w-5 h-5 text-cyan-400" />
+                    Generate Video
+                  </>
+                )}
+              </h2>
+              <button
+                onClick={() => setShowGenModal(null)}
+                className="text-slate-400 hover:text-white"
+              >
+                <XMarkIcon className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">Prompt</label>
+                <textarea
+                  value={genPrompt}
+                  onChange={(e) => setGenPrompt(e.target.value)}
+                  placeholder={
+                    showGenModal === 'image'
+                      ? 'Describe the background image... (e.g., "Abstract neon cityscape at night with rain reflections")'
+                      : 'Describe the video background... (e.g., "Slow motion particles floating through colorful smoke")'
+                  }
+                  className="w-full bg-black/50 border border-white/10 rounded-lg p-3 text-sm text-white placeholder-slate-500 focus:border-pink-500 outline-none resize-none h-24"
+                />
+              </div>
+
+              {showGenModal === 'image' ? (
+                <>
+                  <div>
+                    <label className="text-xs text-slate-400 block mb-1">Resolution</label>
+                    <div className="flex gap-2">
+                      {(['1K', '2K', '4K'] as ImageSize[]).map((size) => (
+                        <button
+                          key={size}
+                          onClick={() => setTargetSize(size)}
+                          className={`flex-1 py-2 text-xs rounded-lg border transition-all ${
+                            targetSize === size
+                              ? 'border-purple-500 bg-purple-500/20 text-purple-300'
+                              : 'border-white/10 text-slate-400 hover:bg-white/5'
+                          }`}
+                        >
+                          {size}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-slate-500">
+                    Uses current aspect ratio: {state.aspectRatio}
+                  </p>
+                </>
+              ) : (
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">Aspect Ratio</label>
+                  <div className="flex gap-2">
+                    {(['16:9', '9:16'] as const).map((ar) => (
+                      <button
+                        key={ar}
+                        onClick={() => setGenAspectRatio(ar)}
+                        className={`flex-1 py-2 text-xs rounded-lg border transition-all ${
+                          genAspectRatio === ar
+                            ? 'border-cyan-500 bg-cyan-500/20 text-cyan-300'
+                            : 'border-white/10 text-slate-400 hover:bg-white/5'
+                        }`}
+                      >
+                        {ar}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <button
+                onClick={handleGenerate}
+                disabled={isGenerating || !genPrompt.trim()}
+                className={`w-full py-3 rounded-lg font-medium text-sm transition-all flex items-center justify-center gap-2 ${
+                  isGenerating || !genPrompt.trim()
+                    ? 'bg-slate-700 text-slate-400 cursor-not-allowed'
+                    : showGenModal === 'image'
+                      ? 'bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white'
+                      : 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white'
+                }`}
+              >
+                {isGenerating ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <SparklesIcon className="w-4 h-4" />
+                    Generate {showGenModal === 'image' ? 'Image' : 'Video'}
+                  </>
+                )}
+              </button>
+
+              {showGenModal === 'video' && (
+                <p className="text-[10px] text-slate-500 text-center">
+                  Video generation may take 1-2 minutes
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
