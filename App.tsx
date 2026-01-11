@@ -60,8 +60,6 @@ import {
   MotionPreset,
 } from './types';
 import type {
-  Genre,
-  EffectInstanceConfig,
   VideoPlan,
   VideoPlanMood,
   VideoPlanColorPalette,
@@ -164,9 +162,12 @@ const App = () => {
       speedY: 1.0,
       intensity: 1.0,
       palette: 'neon',
+      colorPalette: 'neon', // UI-friendly alias
       dynamicBackgroundOpacity: false,
+      dynamicBackgroundPulse: false, // UI-friendly alias
       textAnimation: 'KINETIC',
       backgroundBlendMode: 'source-over',
+      blendMode: 'source-over', // UI-friendly alias
       fontFamily: 'Space Grotesk',
       textStagger: 0.05,
       textRevealDuration: 0.5,
@@ -174,8 +175,11 @@ const App = () => {
       kineticOffsetRange: 30,
       glitchFrequency: 0.5,
       trailsEnabled: true,
+      particleTrails: true, // UI-friendly alias
       cameraShake: true,
       cameraShakeIntensity: 1.5,
+      shakeIntensity: 1.5, // UI-friendly alias
+      reactivityIntensity: 1.0, // Overall audio reactivity
       frequencyMapping: {
         pulse: 'bass',
         motion: 'mid',
@@ -195,7 +199,7 @@ const App = () => {
 
   // Video Plan state
   const [videoPlan, setVideoPlan] = useState<VideoPlan | null>(null);
-  const [videoPlanHistory, setVideoPlanHistory] = useState<VideoPlan[]>([]);
+  const [_videoPlanHistory, setVideoPlanHistory] = useState<VideoPlan[]>([]); // History for future undo feature
   const [isGeneratingPlan, setIsGeneratingPlan] = useState(false);
   const [showPlanPanel, setShowPlanPanel] = useState(false);
   const [regeneratingPeakId, setRegeneratingPeakId] = useState<string | null>(null);

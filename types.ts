@@ -95,9 +95,12 @@ export interface VisualSettings {
   speedY: number;
   intensity: number;
   palette: ColorPalette;
+  colorPalette: ColorPalette; // UI-friendly alias for palette
   dynamicBackgroundOpacity: boolean;
+  dynamicBackgroundPulse: boolean; // UI-friendly alias for dynamicBackgroundOpacity
   textAnimation: TextAnimationStyle;
   backgroundBlendMode: BlendMode;
+  blendMode: BlendMode; // UI-friendly alias for backgroundBlendMode
   fontFamily: FontFamily;
   textStagger: number; // Seconds delay between chars
   textRevealDuration: number; // Seconds for one char to fully appear
@@ -105,8 +108,11 @@ export interface VisualSettings {
   kineticOffsetRange: number; // Pixels for max vertical offset
   glitchFrequency: number; // 0.0 to 1.0
   trailsEnabled: boolean; // Toggle particle trails
+  particleTrails: boolean; // UI-friendly alias for trailsEnabled
   cameraShake: boolean; // Toggle bass-reactive camera shake
   cameraShakeIntensity: number; // Scalar for camera shake power
+  shakeIntensity: number; // UI-friendly alias for cameraShakeIntensity
+  reactivityIntensity: number; // Overall reactivity to audio (0.5 - 3.0)
   frequencyMapping: {
     pulse: FrequencyBand; // Drives scaling/size
     motion: FrequencyBand; // Drives movement speed/offset

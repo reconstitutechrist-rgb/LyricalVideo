@@ -1,4 +1,4 @@
-import React, { useRef, useCallback } from 'react';
+import React, { useRef, useCallback, useState } from 'react';
 import {
   ArrowUpTrayIcon,
   PlayIcon,
@@ -13,9 +13,23 @@ import {
   PaperAirplaneIcon,
   PhotoIcon,
   FilmIcon,
-  AdjustmentsHorizontalIcon,
+  MicrophoneIcon,
+  EyeDropperIcon,
+  ArrowsPointingOutIcon,
 } from '@heroicons/react/24/solid';
-import { VisualStyle, LyricLine, ChatMessage, AspectRatio } from '../../../types';
+import {
+  VisualStyle,
+  LyricLine,
+  ChatMessage,
+  AspectRatio,
+  ColorPalette,
+  TextAnimationStyle,
+  BlendMode,
+  FontFamily,
+  FrequencyBand,
+  EffectInstanceConfig,
+} from '../../../types';
+import { CollapsibleSection } from './CollapsibleSection';
 
 // ============================================
 // Types
@@ -34,10 +48,33 @@ export interface LyricalFlowUIProps {
   userProvidedLyrics: string;
   userCreativeVision: string;
 
-  // Visual Settings
+  // Visual Settings - Basic
   currentStyle: VisualStyle;
   animationSpeed: number;
   bassShakeEnabled: boolean;
+
+  // Visual Settings - Advanced
+  aspectRatio: AspectRatio;
+  colorPalette: ColorPalette;
+  fontFamily: FontFamily;
+  textAnimation: TextAnimationStyle;
+  reactivityIntensity: number;
+  shakeIntensity: number;
+  dynamicBackgroundPulse: boolean;
+  particleTrails: boolean;
+  blendMode: BlendMode;
+  frequencyMapping: {
+    pulse: FrequencyBand;
+    motion: FrequencyBand;
+    color: FrequencyBand;
+  };
+
+  // Recording
+  isRecordingMic: boolean;
+
+  // Edit Mode
+  editMode: boolean;
+  selectedLyricIndices: Set<number>;
 
   // Chat
   chatOpen: boolean;
@@ -45,7 +82,7 @@ export interface LyricalFlowUIProps {
   chatInput: string;
   isProcessing: boolean;
 
-  // Callbacks
+  // Callbacks - Basic
   onFileUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onTogglePlay: () => void;
   onSeek: (time: number) => void;
@@ -61,6 +98,53 @@ export interface LyricalFlowUIProps {
   onCreativeVisionChange: (value: string) => void;
   onEditLyric: (index: number) => void;
   onGenerateBackground: (type: 'image' | 'video') => void;
+
+  // Callbacks - Advanced
+  onAspectRatioChange: (ratio: AspectRatio) => void;
+  onColorPaletteChange: (palette: ColorPalette) => void;
+  onFontFamilyChange: (font: FontFamily) => void;
+  onTextAnimationChange: (animation: TextAnimationStyle) => void;
+  onReactivityIntensityChange: (intensity: number) => void;
+  onShakeIntensityChange: (intensity: number) => void;
+  onDynamicBackgroundPulseToggle: () => void;
+  onParticleTrailsToggle: () => void;
+  onBlendModeChange: (mode: BlendMode) => void;
+  onFrequencyMappingChange: (key: 'pulse' | 'motion' | 'color', band: FrequencyBand) => void;
+
+  // Callbacks - Recording
+  onStartMicRecording: () => void;
+  onStopMicRecording: () => void;
+  onImageAnalysis: (e: React.ChangeEvent<HTMLInputElement>) => void;
+
+  // Callbacks - Edit Mode
+  onEditModeToggle: () => void;
+  onLyricSelect: (index: number) => void;
+  onSelectAllLyrics: () => void;
+  onBulkTimeShift: (shift: number) => void;
+  onTextTransform: (type: 'upper' | 'lower' | 'capitalize') => void;
+  onUpdateLyricTime: (index: number, field: 'startTime' | 'endTime', value: number) => void;
+  onUpdateLyricSection: (index: number, section: string) => void;
+  onUpdateLyricText: (index: number, text: string) => void;
+  onUpdateLyricStyleOverride: (index: number, style: VisualStyle | null) => void;
+  onUpdateLyricPaletteOverride: (index: number, palette: ColorPalette | null) => void;
+
+  // Genre Detection
+  detectedGenre: string | null;
+  genreOverride: string | null;
+  onGenreOverride: (genre: string | null) => void;
+
+  // Effects
+  lyricEffects: EffectInstanceConfig[];
+  backgroundEffects: EffectInstanceConfig[];
+  onAddLyricEffect: (effectId: string) => void;
+  onAddBackgroundEffect: (effectId: string) => void;
+  onRemoveLyricEffect: (index: number) => void;
+  onRemoveBackgroundEffect: (index: number) => void;
+  onToggleLyricEffect: (index: number) => void;
+  onToggleBackgroundEffect: (index: number) => void;
+
+  // Keyframe Animation
+  onApplyMotionPreset: (lyricIndex: number, presetId: string) => void;
 
   // Current lyric for display
   currentLyricText: string;
@@ -197,25 +281,179 @@ const getSectionStyle = (section?: string): string => {
 };
 
 // ============================================
+// Advanced Options Data
+// ============================================
+
+const ASPECT_RATIO_OPTIONS: { value: AspectRatio; label: string }[] = [
+  { value: '9:16', label: '9:16' },
+  { value: '16:9', label: '16:9' },
+  { value: '1:1', label: '1:1' },
+];
+
+const COLOR_PALETTE_OPTIONS: { value: ColorPalette; label: string; colors: string[] }[] = [
+  { value: 'neon', label: 'Neon', colors: ['#00ffff', '#ff00ff', '#00ff00'] },
+  { value: 'sunset', label: 'Sunset', colors: ['#ff6b35', '#f7c59f', '#efa00b'] },
+  { value: 'ocean', label: 'Ocean', colors: ['#0077b6', '#00b4d8', '#90e0ef'] },
+  { value: 'matrix', label: 'Matrix', colors: ['#00ff41', '#008f11', '#003b00'] },
+  { value: 'fire', label: 'Fire', colors: ['#ff0000', '#ff7700', '#ffcc00'] },
+];
+
+const FONT_FAMILY_OPTIONS: { value: FontFamily; label: string }[] = [
+  { value: 'Space Grotesk', label: 'Space Grotesk' },
+  { value: 'Inter', label: 'Inter' },
+  { value: 'Roboto', label: 'Roboto' },
+  { value: 'Montserrat', label: 'Montserrat' },
+  { value: 'Cinzel', label: 'Cinzel' },
+];
+
+const TEXT_ANIMATION_OPTIONS: { value: TextAnimationStyle; label: string }[] = [
+  { value: 'NONE', label: 'None' },
+  { value: 'TYPEWRITER', label: 'Typewriter' },
+  { value: 'FADE_CHARS', label: 'Fade Chars' },
+  { value: 'KINETIC', label: 'Kinetic' },
+  { value: 'BOUNCE', label: 'Bounce' },
+];
+
+const FREQUENCY_BAND_OPTIONS: { value: FrequencyBand; label: string }[] = [
+  { value: 'bass', label: 'Bass' },
+  { value: 'mid', label: 'Mid' },
+  { value: 'treble', label: 'Treble' },
+  { value: 'avg', label: 'Average' },
+];
+
+const BLEND_MODE_OPTIONS: { value: BlendMode; label: string }[] = [
+  { value: 'source-over', label: 'Normal' },
+  { value: 'multiply', label: 'Multiply' },
+  { value: 'screen', label: 'Screen' },
+  { value: 'overlay', label: 'Overlay' },
+  { value: 'darken', label: 'Darken' },
+  { value: 'lighten', label: 'Lighten' },
+  { value: 'color-dodge', label: 'Color Dodge' },
+  { value: 'color-burn', label: 'Color Burn' },
+  { value: 'hard-light', label: 'Hard Light' },
+  { value: 'soft-light', label: 'Soft Light' },
+  { value: 'difference', label: 'Difference' },
+  { value: 'exclusion', label: 'Exclusion' },
+  { value: 'hue', label: 'Hue' },
+  { value: 'saturation', label: 'Saturation' },
+  { value: 'color', label: 'Color' },
+  { value: 'luminosity', label: 'Luminosity' },
+];
+
+const SECTION_TYPE_OPTIONS = [
+  'verse',
+  'chorus',
+  'bridge',
+  'intro',
+  'outro',
+  'pre-chorus',
+  'hook',
+  'breakdown',
+];
+
+const GENRE_OPTIONS = [
+  'hiphop',
+  'rock',
+  'electronic',
+  'classical',
+  'pop',
+  'indie',
+  'rnb',
+  'jazz',
+  'country',
+  'metal',
+];
+
+// Style options for per-line override (includes "none" option)
+const STYLE_OVERRIDE_OPTIONS: { value: VisualStyle | ''; label: string }[] = [
+  { value: '', label: 'Default' },
+  { value: VisualStyle.NEON_PULSE, label: 'Neon Pulse' },
+  { value: VisualStyle.LIQUID_DREAM, label: 'Liquid Dream' },
+  { value: VisualStyle.GLITCH_CYBER, label: 'Glitch Cyber' },
+  { value: VisualStyle.CINEMATIC_BACKDROP, label: 'Cinematic' },
+  { value: VisualStyle.MINIMAL_TYPE, label: 'Minimal' },
+  { value: VisualStyle.KALEIDOSCOPE, label: 'Kaleidoscope' },
+];
+
+const PALETTE_OVERRIDE_OPTIONS: { value: ColorPalette | ''; label: string }[] = [
+  { value: '', label: 'Default' },
+  { value: 'neon', label: 'Neon' },
+  { value: 'sunset', label: 'Sunset' },
+  { value: 'ocean', label: 'Ocean' },
+  { value: 'matrix', label: 'Matrix' },
+  { value: 'fire', label: 'Fire' },
+];
+
+// Available effects for adding
+const LYRIC_EFFECT_OPTIONS = [
+  { id: 'glow', label: 'Glow', description: 'Text glow effect' },
+  { id: 'bounce', label: 'Bounce', description: 'Bouncy text animation' },
+  { id: 'wave', label: 'Wave', description: 'Wavy text motion' },
+  { id: 'shake', label: 'Shake', description: 'Audio-reactive shake' },
+  { id: 'color-shift', label: 'Color Shift', description: 'Dynamic color changes' },
+];
+
+const BACKGROUND_EFFECT_OPTIONS = [
+  { id: 'particles', label: 'Particles', description: 'Floating particles' },
+  { id: 'pulse', label: 'Pulse', description: 'Beat-synced pulse' },
+  { id: 'vignette', label: 'Vignette', description: 'Dark edges effect' },
+  { id: 'chromatic', label: 'Chromatic', description: 'RGB split effect' },
+  { id: 'blur', label: 'Blur', description: 'Background blur' },
+];
+
+// Motion presets for keyframe animation
+const MOTION_PRESET_OPTIONS = [
+  { id: 'none', label: 'None', description: 'No motion' },
+  { id: 'fade-in', label: 'Fade In', description: 'Fades in from transparent' },
+  { id: 'slide-up', label: 'Slide Up', description: 'Slides up from below' },
+  { id: 'slide-down', label: 'Slide Down', description: 'Slides down from above' },
+  { id: 'zoom-in', label: 'Zoom In', description: 'Grows from small to full size' },
+  { id: 'bounce', label: 'Bounce', description: 'Bouncy entrance' },
+  { id: 'spin', label: 'Spin', description: 'Rotates while entering' },
+  { id: 'wave', label: 'Wave', description: 'Wavy motion' },
+];
+
+// ============================================
 // Main Component
 // ============================================
 
 export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
+  // Audio State
   audioFile,
   audioUrl,
   isPlaying,
   currentTime,
   duration,
+  // Lyrics
   lyrics,
   userProvidedLyrics,
   userCreativeVision,
+  // Visual Settings - Basic
   currentStyle,
   animationSpeed,
   bassShakeEnabled,
+  // Visual Settings - Advanced
+  aspectRatio,
+  colorPalette,
+  fontFamily,
+  textAnimation,
+  reactivityIntensity,
+  shakeIntensity,
+  dynamicBackgroundPulse,
+  particleTrails,
+  blendMode,
+  frequencyMapping,
+  // Recording
+  isRecordingMic,
+  // Edit Mode
+  editMode,
+  selectedLyricIndices,
+  // Chat
   chatOpen,
   chatMessages,
   chatInput,
   isProcessing,
+  // Callbacks - Basic
   onFileUpload,
   onTogglePlay,
   onSeek,
@@ -231,12 +469,56 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
   onCreativeVisionChange,
   onEditLyric,
   onGenerateBackground,
+  // Callbacks - Advanced
+  onAspectRatioChange,
+  onColorPaletteChange,
+  onFontFamilyChange,
+  onTextAnimationChange,
+  onReactivityIntensityChange,
+  onShakeIntensityChange,
+  onDynamicBackgroundPulseToggle,
+  onParticleTrailsToggle,
+  onBlendModeChange,
+  onFrequencyMappingChange,
+  // Callbacks - Recording
+  onStartMicRecording,
+  onStopMicRecording,
+  onImageAnalysis,
+  // Callbacks - Edit Mode
+  onEditModeToggle,
+  onLyricSelect,
+  onSelectAllLyrics,
+  onBulkTimeShift,
+  onTextTransform,
+  onUpdateLyricTime,
+  onUpdateLyricSection,
+  onUpdateLyricText,
+  onUpdateLyricStyleOverride,
+  onUpdateLyricPaletteOverride,
+  // Genre Detection
+  detectedGenre,
+  genreOverride,
+  onGenreOverride,
+  // Effects
+  lyricEffects,
+  backgroundEffects,
+  onAddLyricEffect,
+  onAddBackgroundEffect,
+  onRemoveLyricEffect,
+  onRemoveBackgroundEffect,
+  onToggleLyricEffect,
+  onToggleBackgroundEffect,
+  // Keyframe Animation
+  onApplyMotionPreset,
+  // Display
   currentLyricText,
   children,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const progressRef = useRef<HTMLDivElement>(null);
+  const [timeShiftValue, setTimeShiftValue] = useState<string>('0');
 
   // Format time as MM:SS
   const formatTime = (seconds: number): string => {
@@ -392,6 +674,84 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
                 </div>
               </div>
             )}
+
+            {/* Advanced Input Options */}
+            <CollapsibleSection title="Advanced Input" storageKey="advanced-input">
+              {/* Mic Recording */}
+              <button
+                onClick={isRecordingMic ? onStopMicRecording : onStartMicRecording}
+                className={`w-full p-2.5 rounded-lg glass-card flex items-center gap-2 text-left transition ${
+                  isRecordingMic ? 'mic-recording border-red-500/50' : ''
+                }`}
+                aria-label={isRecordingMic ? 'Stop recording' : 'Start recording lyrics'}
+              >
+                <div
+                  className={`w-7 h-7 rounded-full flex items-center justify-center border ${
+                    isRecordingMic
+                      ? 'border-red-500 bg-red-500/20'
+                      : 'border-cyan-500/30 bg-cyan-500/10'
+                  }`}
+                >
+                  <MicrophoneIcon
+                    className={`w-4 h-4 ${isRecordingMic ? 'text-red-400' : 'text-cyan-400'}`}
+                  />
+                </div>
+                <div>
+                  <div className="text-[10px] font-medium">
+                    {isRecordingMic ? 'Recording...' : 'Speak Lyrics'}
+                  </div>
+                  <div className="text-[8px] text-slate-500">
+                    {isRecordingMic ? 'Click to stop' : 'Use microphone to input lyrics'}
+                  </div>
+                </div>
+              </button>
+
+              {/* Image Analysis */}
+              <button
+                onClick={() => imageInputRef.current?.click()}
+                className="w-full p-2.5 rounded-lg glass-card flex items-center gap-2 text-left"
+                aria-label="Analyze image for visual inspiration"
+              >
+                <div className="w-7 h-7 rounded-full flex items-center justify-center border border-cyan-500/30 bg-cyan-500/10">
+                  <EyeDropperIcon className="w-4 h-4 text-cyan-400" />
+                </div>
+                <div>
+                  <div className="text-[10px] font-medium">Analyze Image</div>
+                  <div className="text-[8px] text-slate-500">Extract colors and mood</div>
+                </div>
+              </button>
+              <input
+                ref={imageInputRef}
+                type="file"
+                accept="image/*"
+                onChange={onImageAnalysis}
+                className="hidden"
+                aria-label="Image file input"
+              />
+
+              {/* Aspect Ratio */}
+              <div className="p-2.5 rounded-lg glass-card">
+                <label className="text-[9px] text-slate-400 mb-2 block">Aspect Ratio</label>
+                <div className="flex gap-1.5" role="radiogroup" aria-label="Aspect ratio selection">
+                  {ASPECT_RATIO_OPTIONS.map((option) => (
+                    <button
+                      key={option.value}
+                      onClick={() => onAspectRatioChange(option.value)}
+                      role="radio"
+                      aria-checked={aspectRatio === option.value}
+                      className={`aspect-ratio-btn flex-1 py-1.5 rounded-md text-[10px] font-medium transition ${
+                        aspectRatio === option.value
+                          ? 'active bg-cyan-500/20 text-cyan-400 border-cyan-500/50'
+                          : 'bg-black/20 text-slate-400 border-white/5 hover:border-cyan-500/30'
+                      } border`}
+                    >
+                      <ArrowsPointingOutIcon className="w-3 h-3 mx-auto mb-0.5" />
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </CollapsibleSection>
           </section>
 
           {/* Step 2: Visual Direction */}
@@ -416,6 +776,121 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
                 </button>
               ))}
             </div>
+
+            {/* Advanced Styling */}
+            <CollapsibleSection title="Advanced Styling" storageKey="advanced-styling">
+              {/* Color Palette */}
+              <div className="p-2.5 rounded-lg glass-card">
+                <label className="text-[9px] text-slate-400 mb-2 block">Color Palette</label>
+                <div className="grid grid-cols-5 gap-1.5">
+                  {COLOR_PALETTE_OPTIONS.map((palette) => (
+                    <button
+                      key={palette.value}
+                      onClick={() => onColorPaletteChange(palette.value)}
+                      className={`palette-swatch p-1.5 rounded-md transition ${
+                        colorPalette === palette.value
+                          ? 'ring-2 ring-cyan-400 ring-offset-1 ring-offset-black/50'
+                          : ''
+                      }`}
+                      aria-label={`${palette.label} palette`}
+                      aria-pressed={colorPalette === palette.value}
+                    >
+                      <div className="flex gap-0.5 justify-center mb-1">
+                        {palette.colors.map((color, i) => (
+                          <div
+                            key={i}
+                            className="w-2 h-2 rounded-full"
+                            style={{ backgroundColor: color }}
+                          />
+                        ))}
+                      </div>
+                      <div className="text-[7px] text-slate-400 text-center">{palette.label}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Font Family */}
+              <div className="p-2.5 rounded-lg glass-card">
+                <label htmlFor="font-family" className="text-[9px] text-slate-400 mb-1.5 block">
+                  Font Family
+                </label>
+                <select
+                  id="font-family"
+                  value={fontFamily}
+                  onChange={(e) => onFontFamilyChange(e.target.value as FontFamily)}
+                  className="glass-select w-full py-1.5 px-2 rounded-md text-[10px] text-slate-300 outline-none"
+                >
+                  {FONT_FAMILY_OPTIONS.map((font) => (
+                    <option key={font.value} value={font.value}>
+                      {font.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Text Animation */}
+              <div className="p-2.5 rounded-lg glass-card">
+                <label htmlFor="text-animation" className="text-[9px] text-slate-400 mb-1.5 block">
+                  Text Animation
+                </label>
+                <select
+                  id="text-animation"
+                  value={textAnimation}
+                  onChange={(e) => onTextAnimationChange(e.target.value as TextAnimationStyle)}
+                  className="glass-select w-full py-1.5 px-2 rounded-md text-[10px] text-slate-300 outline-none"
+                >
+                  {TEXT_ANIMATION_OPTIONS.map((anim) => (
+                    <option key={anim.value} value={anim.value}>
+                      {anim.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </CollapsibleSection>
+
+            {/* Genre Detection */}
+            <CollapsibleSection title="Genre Detection" storageKey="genre-detection">
+              <div className="p-2.5 rounded-lg glass-card">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[9px] text-slate-400">Detected Genre</span>
+                  {detectedGenre && (
+                    <span className="text-[9px] px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-400 border border-cyan-500/30">
+                      {detectedGenre}
+                    </span>
+                  )}
+                  {!detectedGenre && (
+                    <span className="text-[9px] text-slate-500 italic">No audio loaded</span>
+                  )}
+                </div>
+                <div>
+                  <label
+                    htmlFor="genre-override"
+                    className="text-[9px] text-slate-400 mb-1.5 block"
+                  >
+                    Override Genre
+                  </label>
+                  <select
+                    id="genre-override"
+                    value={genreOverride || ''}
+                    onChange={(e) => onGenreOverride(e.target.value || null)}
+                    className="glass-select w-full py-1.5 px-2 rounded-md text-[10px] text-slate-300 outline-none"
+                  >
+                    <option value="">Auto-detect</option>
+                    {GENRE_OPTIONS.map((genre) => (
+                      <option key={genre} value={genre}>
+                        {genre.charAt(0).toUpperCase() + genre.slice(1)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {(genreOverride || detectedGenre) && (
+                  <p className="text-[8px] text-slate-500 mt-2">
+                    Genre affects visual presets and audio reactivity
+                  </p>
+                )}
+              </div>
+            </CollapsibleSection>
           </section>
 
           {/* Step 3: FX Controls */}
@@ -471,6 +946,231 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
                 Gen Video
               </button>
             </div>
+
+            {/* Advanced FX */}
+            <CollapsibleSection title="Advanced FX" storageKey="advanced-fx">
+              {/* Reactivity Intensity */}
+              <div className="p-2.5 rounded-lg glass-card">
+                <div className="flex justify-between text-[9px] mb-1.5">
+                  <label htmlFor="reactivity-intensity" className="text-slate-400">
+                    Reactivity Intensity
+                  </label>
+                  <span className="text-cyan-400 font-mono">{reactivityIntensity.toFixed(1)}x</span>
+                </div>
+                <input
+                  id="reactivity-intensity"
+                  type="range"
+                  min="0.5"
+                  max="3"
+                  step="0.1"
+                  value={reactivityIntensity}
+                  onChange={(e) => onReactivityIntensityChange(parseFloat(e.target.value))}
+                  className="w-full cyan-range"
+                />
+              </div>
+
+              {/* Shake Intensity (only when bass shake enabled) */}
+              {bassShakeEnabled && (
+                <div className="p-2.5 rounded-lg glass-card">
+                  <div className="flex justify-between text-[9px] mb-1.5">
+                    <label htmlFor="shake-intensity" className="text-slate-400">
+                      Shake Intensity
+                    </label>
+                    <span className="text-cyan-400 font-mono">{shakeIntensity.toFixed(1)}x</span>
+                  </div>
+                  <input
+                    id="shake-intensity"
+                    type="range"
+                    min="0.5"
+                    max="3"
+                    step="0.1"
+                    value={shakeIntensity}
+                    onChange={(e) => onShakeIntensityChange(parseFloat(e.target.value))}
+                    className="w-full cyan-range"
+                  />
+                </div>
+              )}
+
+              {/* Additional Toggles */}
+              <div className="p-2.5 rounded-lg glass-card space-y-2">
+                <ToggleSwitch
+                  id="dynamic-bg-pulse"
+                  label="Dynamic BG Pulse"
+                  enabled={dynamicBackgroundPulse}
+                  onToggle={onDynamicBackgroundPulseToggle}
+                />
+                <ToggleSwitch
+                  id="particle-trails"
+                  label="Particle Trails"
+                  enabled={particleTrails}
+                  onToggle={onParticleTrailsToggle}
+                />
+              </div>
+
+              {/* Frequency Mapping */}
+              <div className="p-2.5 rounded-lg glass-card">
+                <label className="text-[9px] text-slate-400 mb-2 block">
+                  Audio Frequency Mapping
+                </label>
+                <div className="space-y-2">
+                  {(['pulse', 'motion', 'color'] as const).map((key) => (
+                    <div key={key} className="flex items-center justify-between">
+                      <span className="text-[9px] text-slate-500 capitalize">{key}</span>
+                      <select
+                        value={frequencyMapping[key]}
+                        onChange={(e) =>
+                          onFrequencyMappingChange(key, e.target.value as FrequencyBand)
+                        }
+                        className="glass-select py-1 px-2 rounded text-[9px] text-slate-300"
+                        aria-label={`${key} frequency mapping`}
+                      >
+                        {FREQUENCY_BAND_OPTIONS.map((band) => (
+                          <option key={band.value} value={band.value}>
+                            {band.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Blend Mode */}
+              <div className="p-2.5 rounded-lg glass-card">
+                <label htmlFor="blend-mode" className="text-[9px] text-slate-400 mb-1.5 block">
+                  Blend Mode
+                </label>
+                <select
+                  id="blend-mode"
+                  value={blendMode}
+                  onChange={(e) => onBlendModeChange(e.target.value as BlendMode)}
+                  className="glass-select w-full py-1.5 px-2 rounded-md text-[10px] text-slate-300 outline-none"
+                >
+                  {BLEND_MODE_OPTIONS.map((mode) => (
+                    <option key={mode.value} value={mode.value}>
+                      {mode.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </CollapsibleSection>
+
+            {/* Effect Studio */}
+            <CollapsibleSection title="Effect Studio" storageKey="effect-studio">
+              {/* Lyric Effects */}
+              <div className="p-2.5 rounded-lg glass-card">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[9px] text-slate-400">Lyric Effects</span>
+                  <span className="text-[8px] text-cyan-400/60">{lyricEffects.length} active</span>
+                </div>
+                {/* Add Effect Dropdown */}
+                <select
+                  className="glass-select w-full py-1 px-2 rounded text-[9px] text-slate-300 mb-2"
+                  value=""
+                  onChange={(e) => {
+                    if (e.target.value) {
+                      onAddLyricEffect(e.target.value);
+                      e.target.value = '';
+                    }
+                  }}
+                  aria-label="Add lyric effect"
+                >
+                  <option value="">+ Add Effect...</option>
+                  {LYRIC_EFFECT_OPTIONS.filter(
+                    (opt) => !lyricEffects.find((e) => e.effectId === opt.id)
+                  ).map((effect) => (
+                    <option key={effect.id} value={effect.id}>
+                      {effect.label}
+                    </option>
+                  ))}
+                </select>
+                {/* Active Effects */}
+                {lyricEffects.length > 0 && (
+                  <div className="space-y-1">
+                    {lyricEffects.map((effect, index) => (
+                      <div
+                        key={`${effect.effectId}-${index}`}
+                        className="flex items-center justify-between py-1 px-2 rounded bg-black/20 border border-white/5"
+                      >
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => onToggleLyricEffect(index)}
+                            className={`w-2 h-2 rounded-full ${effect.enabled ? 'bg-cyan-400' : 'bg-slate-600'}`}
+                            aria-label={effect.enabled ? 'Disable effect' : 'Enable effect'}
+                          />
+                          <span className="text-[9px] text-slate-300">{effect.effectId}</span>
+                        </div>
+                        <button
+                          onClick={() => onRemoveLyricEffect(index)}
+                          className="text-[9px] text-slate-500 hover:text-red-400"
+                          aria-label="Remove effect"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Background Effects */}
+              <div className="p-2.5 rounded-lg glass-card">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[9px] text-slate-400">Background Effects</span>
+                  <span className="text-[8px] text-cyan-400/60">
+                    {backgroundEffects.length} active
+                  </span>
+                </div>
+                {/* Add Effect Dropdown */}
+                <select
+                  className="glass-select w-full py-1 px-2 rounded text-[9px] text-slate-300 mb-2"
+                  value=""
+                  onChange={(e) => {
+                    if (e.target.value) {
+                      onAddBackgroundEffect(e.target.value);
+                      e.target.value = '';
+                    }
+                  }}
+                  aria-label="Add background effect"
+                >
+                  <option value="">+ Add Effect...</option>
+                  {BACKGROUND_EFFECT_OPTIONS.filter(
+                    (opt) => !backgroundEffects.find((e) => e.effectId === opt.id)
+                  ).map((effect) => (
+                    <option key={effect.id} value={effect.id}>
+                      {effect.label}
+                    </option>
+                  ))}
+                </select>
+                {/* Active Effects */}
+                {backgroundEffects.length > 0 && (
+                  <div className="space-y-1">
+                    {backgroundEffects.map((effect, index) => (
+                      <div
+                        key={`${effect.effectId}-${index}`}
+                        className="flex items-center justify-between py-1 px-2 rounded bg-black/20 border border-white/5"
+                      >
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => onToggleBackgroundEffect(index)}
+                            className={`w-2 h-2 rounded-full ${effect.enabled ? 'bg-cyan-400' : 'bg-slate-600'}`}
+                            aria-label={effect.enabled ? 'Disable effect' : 'Enable effect'}
+                          />
+                          <span className="text-[9px] text-slate-300">{effect.effectId}</span>
+                        </div>
+                        <button
+                          onClick={() => onRemoveBackgroundEffect(index)}
+                          className="text-[9px] text-slate-500 hover:text-red-400"
+                          aria-label="Remove effect"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </CollapsibleSection>
           </section>
 
           {/* Step 4: Timeline */}
@@ -478,13 +1178,138 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
             <div className="flex items-center justify-between mb-2">
               <StepIndicator step={4} label="Timeline" />
               <button
-                className="px-2 py-1 rounded-md text-[9px] text-slate-400 glass-card hover:text-cyan-400 flex items-center gap-1"
-                aria-label="Edit lyrics"
+                onClick={onEditModeToggle}
+                className={`px-2 py-1 rounded-md text-[9px] glass-card flex items-center gap-1 transition ${
+                  editMode
+                    ? 'text-cyan-400 border-cyan-500/50'
+                    : 'text-slate-400 hover:text-cyan-400'
+                }`}
+                aria-label={editMode ? 'Exit edit mode' : 'Enter edit mode'}
+                aria-pressed={editMode}
               >
                 <PencilSquareIcon className="w-3 h-3" />
-                Edit
+                {editMode ? 'Done' : 'Edit'}
               </button>
             </div>
+
+            {/* Bulk Actions Bar (when editing and has selections) */}
+            {editMode && selectedLyricIndices.size > 0 && (
+              <div className="bulk-actions-bar mb-2 p-2 rounded-lg glass-card border border-cyan-500/20">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[9px] text-cyan-400">
+                    {selectedLyricIndices.size} selected
+                  </span>
+                  <button
+                    onClick={onSelectAllLyrics}
+                    className="text-[9px] text-slate-400 hover:text-cyan-400"
+                  >
+                    {selectedLyricIndices.size === lyrics.length ? 'Deselect All' : 'Select All'}
+                  </button>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {/* Time Shift */}
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="number"
+                      value={timeShiftValue}
+                      onChange={(e) => setTimeShiftValue(e.target.value)}
+                      className="time-input w-12 py-0.5 px-1 rounded text-[9px] text-center"
+                      placeholder="0"
+                      step="0.1"
+                    />
+                    <button
+                      onClick={() => onBulkTimeShift(parseFloat(timeShiftValue) || 0)}
+                      className="bulk-action-btn px-2 py-0.5 rounded text-[9px]"
+                    >
+                      Shift
+                    </button>
+                  </div>
+                  {/* Text Transform */}
+                  <button
+                    onClick={() => onTextTransform('upper')}
+                    className="bulk-action-btn px-2 py-0.5 rounded text-[9px]"
+                  >
+                    UPPER
+                  </button>
+                  <button
+                    onClick={() => onTextTransform('lower')}
+                    className="bulk-action-btn px-2 py-0.5 rounded text-[9px]"
+                  >
+                    lower
+                  </button>
+                  <button
+                    onClick={() => onTextTransform('capitalize')}
+                    className="bulk-action-btn px-2 py-0.5 rounded text-[9px]"
+                  >
+                    Title
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Keyframe Animation Editor */}
+            <CollapsibleSection title="Motion Presets" storageKey="keyframe-editor">
+              <div className="p-2.5 rounded-lg glass-card">
+                <p className="text-[8px] text-slate-500 mb-2">
+                  Apply motion presets to selected lyrics or all lyrics
+                </p>
+                {/* Apply to Selection */}
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <select
+                      id="motion-preset-select"
+                      className="glass-select flex-1 py-1 px-2 rounded text-[9px] text-slate-300"
+                      defaultValue=""
+                      aria-label="Select motion preset"
+                    >
+                      <option value="">Select preset...</option>
+                      {MOTION_PRESET_OPTIONS.map((preset) => (
+                        <option key={preset.id} value={preset.id}>
+                          {preset.label}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={() => {
+                        const select = document.getElementById(
+                          'motion-preset-select'
+                        ) as HTMLSelectElement;
+                        const presetId = select?.value;
+                        if (presetId && selectedLyricIndices.size > 0) {
+                          selectedLyricIndices.forEach((index) => {
+                            onApplyMotionPreset(index, presetId);
+                          });
+                        }
+                      }}
+                      disabled={selectedLyricIndices.size === 0}
+                      className="bulk-action-btn px-2 py-1 rounded text-[9px] disabled:opacity-50"
+                    >
+                      Apply to Selected
+                    </button>
+                  </div>
+                  {selectedLyricIndices.size === 0 && editMode && (
+                    <p className="text-[8px] text-amber-400/70">
+                      Select lyrics above to apply motion
+                    </p>
+                  )}
+                </div>
+                {/* Preview list of presets */}
+                <div className="mt-3 border-t border-white/5 pt-2">
+                  <span className="text-[8px] text-slate-500">Available presets:</span>
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {MOTION_PRESET_OPTIONS.slice(1).map((preset) => (
+                      <span
+                        key={preset.id}
+                        className="text-[8px] px-1.5 py-0.5 rounded bg-black/30 text-slate-400 border border-white/5"
+                        title={preset.description}
+                      >
+                        {preset.label}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </CollapsibleSection>
 
             {lyrics.length > 0 ? (
               <div
@@ -493,31 +1318,132 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
                 aria-label="Lyrics timeline"
               >
                 {lyrics.map((lyric, i) => (
-                  <button
+                  <div
                     key={lyric.id || i}
-                    onClick={() => onEditLyric(i)}
                     className={`w-full p-2 rounded-lg glass-card lyric-line text-left border-l-2 ${getSectionStyle(lyric.section)} ${
                       i === currentLyricIndex ? 'active' : ''
-                    }`}
+                    } ${editMode && selectedLyricIndices.has(i) ? 'ring-1 ring-cyan-400/50' : ''}`}
                     role="listitem"
                     aria-current={i === currentLyricIndex ? 'true' : undefined}
                   >
-                    <div className="flex justify-between items-center mb-0.5">
-                      <span className="text-[9px] text-cyan-400 font-mono">
-                        {formatTime(lyric.startTime)}
-                      </span>
-                      {lyric.section && (
-                        <span className="text-[8px] px-1.5 py-0.5 rounded-full bg-black/30 border border-white/5 uppercase tracking-wider text-slate-500">
-                          {lyric.section}
-                        </span>
-                      )}
-                    </div>
-                    <p
-                      className={`text-[10px] ${i === currentLyricIndex ? 'text-white' : 'text-slate-300/80'}`}
-                    >
-                      {lyric.text}
-                    </p>
-                  </button>
+                    {editMode ? (
+                      /* Edit Mode View */
+                      <div className="space-y-1.5">
+                        {/* Row 1: Checkbox, Time inputs, Section */}
+                        <div className="flex items-center gap-2">
+                          {/* Selection Checkbox */}
+                          <input
+                            type="checkbox"
+                            checked={selectedLyricIndices.has(i)}
+                            onChange={() => onLyricSelect(i)}
+                            className="glass-checkbox w-3 h-3 rounded"
+                            aria-label={`Select lyric ${i + 1}`}
+                          />
+                          {/* Time Inputs */}
+                          <input
+                            type="number"
+                            value={lyric.startTime.toFixed(2)}
+                            onChange={(e) =>
+                              onUpdateLyricTime(i, 'startTime', parseFloat(e.target.value) || 0)
+                            }
+                            className="time-input w-14 py-0.5 px-1 rounded text-[9px] text-center"
+                            step="0.01"
+                            aria-label="Start time"
+                          />
+                          <span className="text-[9px] text-slate-500">→</span>
+                          <input
+                            type="number"
+                            value={lyric.endTime.toFixed(2)}
+                            onChange={(e) =>
+                              onUpdateLyricTime(i, 'endTime', parseFloat(e.target.value) || 0)
+                            }
+                            className="time-input w-14 py-0.5 px-1 rounded text-[9px] text-center"
+                            step="0.01"
+                            aria-label="End time"
+                          />
+                          {/* Section Dropdown */}
+                          <select
+                            value={lyric.section || ''}
+                            onChange={(e) => onUpdateLyricSection(i, e.target.value)}
+                            className="glass-select py-0.5 px-1 rounded text-[8px] flex-1"
+                            aria-label="Section type"
+                          >
+                            <option value="">—</option>
+                            {SECTION_TYPE_OPTIONS.map((section) => (
+                              <option key={section} value={section}>
+                                {section}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        {/* Row 2: Style Override, Palette Override */}
+                        <div className="flex items-center gap-2 pl-5">
+                          <select
+                            value={lyric.styleOverride || ''}
+                            onChange={(e) =>
+                              onUpdateLyricStyleOverride(
+                                i,
+                                e.target.value ? (e.target.value as VisualStyle) : null
+                              )
+                            }
+                            className="glass-select py-0.5 px-1 rounded text-[8px] flex-1"
+                            aria-label="Style override"
+                          >
+                            {STYLE_OVERRIDE_OPTIONS.map((style) => (
+                              <option key={style.value || 'default'} value={style.value}>
+                                {style.label}
+                              </option>
+                            ))}
+                          </select>
+                          <select
+                            value={lyric.paletteOverride || ''}
+                            onChange={(e) =>
+                              onUpdateLyricPaletteOverride(
+                                i,
+                                e.target.value ? (e.target.value as ColorPalette) : null
+                              )
+                            }
+                            className="glass-select py-0.5 px-1 rounded text-[8px] flex-1"
+                            aria-label="Palette override"
+                          >
+                            {PALETTE_OVERRIDE_OPTIONS.map((palette) => (
+                              <option key={palette.value || 'default'} value={palette.value}>
+                                {palette.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        {/* Row 3: Inline Text Editing */}
+                        <input
+                          type="text"
+                          value={lyric.text}
+                          onChange={(e) => onUpdateLyricText(i, e.target.value)}
+                          className="w-full py-1 px-2 rounded text-[10px] text-slate-200 glass-card border border-white/5 focus:border-cyan-500/30 outline-none ml-5"
+                          style={{ width: 'calc(100% - 1.25rem)' }}
+                          aria-label="Lyric text"
+                        />
+                      </div>
+                    ) : (
+                      /* View Mode */
+                      <button onClick={() => onEditLyric(i)} className="w-full text-left">
+                        <div className="flex justify-between items-center mb-0.5">
+                          <span className="text-[9px] text-cyan-400 font-mono">
+                            {formatTime(lyric.startTime)}
+                          </span>
+                          {lyric.section && (
+                            <span className="text-[8px] px-1.5 py-0.5 rounded-full bg-black/30 border border-white/5 uppercase tracking-wider text-slate-500">
+                              {lyric.section}
+                            </span>
+                          )}
+                        </div>
+                        <p
+                          className={`text-[10px] ${i === currentLyricIndex ? 'text-white' : 'text-slate-300/80'}`}
+                        >
+                          {lyric.text}
+                        </p>
+                      </button>
+                    )}
+                  </div>
                 ))}
               </div>
             ) : (
