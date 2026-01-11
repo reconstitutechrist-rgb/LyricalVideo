@@ -36,9 +36,12 @@ import {
   transcribeMicrophone,
   analyzeImage,
   detectMusicGenre,
+  modifyVideoPlan,
 } from './services/geminiService';
+import * as aiOrchestrator from './services/aiOrchestrator';
 import { initializeEffects } from './src/effects';
 import { EffectPanel } from './src/components/EffectPanel';
+import { VideoPlanPanel } from './src/components/VideoPlanPanel';
 import {
   AppState,
   LyricLine,
@@ -55,7 +58,15 @@ import {
   EasingType,
   MotionPreset,
 } from './types';
-import type { Genre, EffectInstanceConfig } from './types';
+import type {
+  Genre,
+  EffectInstanceConfig,
+  VideoPlan,
+  VideoPlanMood,
+  VideoPlanColorPalette,
+  VideoPlanVisualStyle,
+  EmotionalPeak,
+} from './types';
 
 // Motion Presets Definition
 const MOTION_PRESETS: MotionPreset[] = [
@@ -138,6 +149,7 @@ const App = () => {
     audioUrl: null,
     lyrics: [],
     userProvidedLyrics: '',
+    userCreativeVision: '',
     metadata: null,
     currentStyle: VisualStyle.NEON_PULSE,
     backgroundAsset: null,
@@ -179,6 +191,14 @@ const App = () => {
 
   // State for genre detection status
   const [isDetectingGenre, setIsDetectingGenre] = useState(false);
+
+  // Video Plan state
+  const [videoPlan, setVideoPlan] = useState<VideoPlan | null>(null);
+  const [videoPlanHistory, setVideoPlanHistory] = useState<VideoPlan[]>([]);
+  const [isGeneratingPlan, setIsGeneratingPlan] = useState(false);
+  const [showPlanPanel, setShowPlanPanel] = useState(false);
+  const [regeneratingPeakId, setRegeneratingPeakId] = useState<string | null>(null);
+  const [isRegeneratingBackground, setIsRegeneratingBackground] = useState(false);
 
   // Initialize effects system on mount
   useEffect(() => {
@@ -253,27 +273,63 @@ const App = () => {
         },
       ]);
 
-      // Trigger genre detection in background
+      // Generate full video plan with multi-AI analysis
+      setIsGeneratingPlan(true);
       setIsDetectingGenre(true);
-      detectMusicGenre(file)
-        .then((result) => {
+
+      aiOrchestrator
+        .generateFullVideoPlan(
+          file,
+          state.userProvidedLyrics,
+          state.userCreativeVision,
+          state.aspectRatio,
+          (status) => {
+            setChatMessages((prev) => [
+              ...prev,
+              { role: 'model', text: status, timestamp: new Date() },
+            ]);
+          }
+        )
+        .then((plan) => {
+          setVideoPlan(plan);
+          setShowPlanPanel(true);
           setState((prev) => ({
             ...prev,
-            detectedGenre: result.genre,
+            detectedGenre: plan.analysis.consensusGenre,
           }));
           setChatMessages((prev) => [
             ...prev,
             {
               role: 'model',
-              text: `Genre detected: ${result.genre} (${Math.round(result.confidence * 100)}% confidence). Mood: ${result.mood}`,
+              text: `Video plan created! Genre: ${plan.analysis.consensusGenre} (${Math.round(plan.analysis.confidence * 100)}% confidence). Found ${plan.emotionalPeaks.length} emotional peaks. Review and customize your plan!`,
               timestamp: new Date(),
             },
           ]);
         })
         .catch((err) => {
-          console.error('Genre detection failed:', err);
+          console.error('Video plan generation failed:', err);
+          // Fall back to just genre detection
+          detectMusicGenre(file)
+            .then((result) => {
+              setState((prev) => ({
+                ...prev,
+                detectedGenre: result.genre,
+              }));
+              setChatMessages((prev) => [
+                ...prev,
+                {
+                  role: 'model',
+                  text: `Genre detected: ${result.genre} (${Math.round(result.confidence * 100)}% confidence). Video plan generation failed, but you can still proceed with manual settings.`,
+                  timestamp: new Date(),
+                },
+              ]);
+            })
+            .catch((genreErr) => {
+              console.error('Genre detection also failed:', genreErr);
+            });
         })
         .finally(() => {
+          setIsGeneratingPlan(false);
           setIsDetectingGenre(false);
         });
     } catch (err) {
@@ -635,6 +691,273 @@ const App = () => {
     }
   };
 
+  // --- Video Plan Handlers ---
+
+  const handleRegeneratePlan = async () => {
+    if (!state.audioFile) return;
+
+    setIsGeneratingPlan(true);
+    try {
+      const plan = await aiOrchestrator.generateFullVideoPlan(
+        state.audioFile,
+        state.userProvidedLyrics,
+        state.userCreativeVision,
+        state.aspectRatio,
+        (status) => {
+          setChatMessages((prev) => [
+            ...prev,
+            { role: 'model', text: status, timestamp: new Date() },
+          ]);
+        }
+      );
+
+      if (videoPlan) {
+        setVideoPlanHistory((prev) => [...prev, videoPlan]);
+      }
+      setVideoPlan(plan);
+    } catch (err) {
+      console.error('Failed to regenerate plan:', err);
+      setChatMessages((prev) => [
+        ...prev,
+        { role: 'model', text: 'Failed to regenerate video plan.', timestamp: new Date() },
+      ]);
+    } finally {
+      setIsGeneratingPlan(false);
+    }
+  };
+
+  const handleApplyPlan = () => {
+    if (!videoPlan) return;
+
+    // Apply visual settings from plan
+    setState((prev) => ({
+      ...prev,
+      currentStyle: videoPlan.visualStyle.style,
+      visualSettings: {
+        ...prev.visualSettings,
+        textAnimation: videoPlan.visualStyle.textAnimation,
+        fontFamily: videoPlan.visualStyle.fontFamily,
+        backgroundBlendMode: videoPlan.visualStyle.blendMode,
+        intensity: videoPlan.visualStyle.intensity,
+        particleSpeed: videoPlan.visualStyle.particleSpeed,
+      },
+      backgroundEffects: videoPlan.backgroundEffect
+        ? [{ effectId: videoPlan.backgroundEffect.effectId, parameters: {}, enabled: true }]
+        : [],
+      lyricEffects: videoPlan.lyricEffects.map((e) => ({
+        effectId: e.effectId,
+        parameters: {},
+        enabled: true,
+      })),
+    }));
+
+    // Mark plan as applied
+    setVideoPlan({ ...videoPlan, status: 'applied' });
+
+    setChatMessages((prev) => [
+      ...prev,
+      {
+        role: 'model',
+        text: 'Video plan applied! Your settings have been updated.',
+        timestamp: new Date(),
+      },
+    ]);
+  };
+
+  const handleModifyPlanViaChat = async (instruction: string) => {
+    if (!videoPlan) return;
+
+    try {
+      const modifiedPlan = await modifyVideoPlan(videoPlan, instruction);
+      setVideoPlanHistory((prev) => [...prev, videoPlan]);
+      setVideoPlan(modifiedPlan);
+      setChatMessages((prev) => [
+        ...prev,
+        { role: 'model', text: `Plan updated: ${modifiedPlan.summary}`, timestamp: new Date() },
+      ]);
+    } catch (err) {
+      console.error('Failed to modify plan:', err);
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          role: 'model',
+          text: 'Failed to modify the plan. Please try again.',
+          timestamp: new Date(),
+        },
+      ]);
+    }
+  };
+
+  const handleMoodEdit = (mood: VideoPlanMood) => {
+    if (!videoPlan) return;
+    setVideoPlanHistory((prev) => [...prev, videoPlan]);
+    setVideoPlan({ ...videoPlan, mood, version: videoPlan.version + 1 });
+  };
+
+  const handlePaletteEdit = (colorPalette: VideoPlanColorPalette) => {
+    if (!videoPlan) return;
+    setVideoPlanHistory((prev) => [...prev, videoPlan]);
+    setVideoPlan({ ...videoPlan, colorPalette, version: videoPlan.version + 1 });
+  };
+
+  const handleStyleEdit = (visualStyle: VideoPlanVisualStyle) => {
+    if (!videoPlan) return;
+    setVideoPlanHistory((prev) => [...prev, videoPlan]);
+    setVideoPlan({ ...videoPlan, visualStyle, version: videoPlan.version + 1 });
+  };
+
+  const handleRegeneratePeakVisual = async (peak: EmotionalPeak) => {
+    if (!videoPlan) return;
+
+    setRegeneratingPeakId(peak.id);
+    try {
+      const newVisual = await aiOrchestrator.regeneratePeakVisual(
+        peak,
+        state.lyrics,
+        videoPlan,
+        state.aspectRatio
+      );
+
+      setVideoPlan((prev) => {
+        if (!prev) return prev;
+        const existingIndex = prev.hybridVisuals.peakVisuals.findIndex((v) => v.peakId === peak.id);
+        const newPeakVisuals = [...prev.hybridVisuals.peakVisuals];
+
+        if (existingIndex >= 0) {
+          newPeakVisuals[existingIndex] = newVisual;
+        } else {
+          newPeakVisuals.push(newVisual);
+        }
+
+        return {
+          ...prev,
+          hybridVisuals: { ...prev.hybridVisuals, peakVisuals: newPeakVisuals },
+        };
+      });
+    } catch (err) {
+      console.error('Failed to regenerate peak visual:', err);
+      setChatMessages((prev) => [
+        ...prev,
+        { role: 'model', text: 'Failed to generate peak visual.', timestamp: new Date() },
+      ]);
+    } finally {
+      setRegeneratingPeakId(null);
+    }
+  };
+
+  // Handle background type toggle (video ↔ image)
+  const handleBackgroundToggle = async () => {
+    if (!videoPlan || !state.audioFile) return;
+
+    const newUseVideo = !videoPlan.backgroundStrategy.useVideo;
+    setIsRegeneratingBackground(true);
+
+    try {
+      // Update strategy
+      const newStrategy = {
+        ...videoPlan.backgroundStrategy,
+        useVideo: newUseVideo,
+        reasoning: newUseVideo
+          ? 'User switched to motion video background'
+          : 'User switched to static image background',
+      };
+
+      // Generate new background
+      let newBackground = null;
+      if (newUseVideo && videoPlan.backgroundStrategy.videoPrompt) {
+        const videoUrl = await generateVideoBackground(
+          videoPlan.backgroundStrategy.videoPrompt,
+          state.aspectRatio === '9:16' ? '9:16' : '16:9'
+        );
+        newBackground = {
+          type: 'video' as const,
+          url: videoUrl,
+          prompt: videoPlan.backgroundStrategy.videoPrompt,
+        };
+      } else if (!newUseVideo && videoPlan.backgroundStrategy.imagePrompt) {
+        const imageUrl = await generateBackground(
+          videoPlan.backgroundStrategy.imagePrompt,
+          state.aspectRatio,
+          '2K'
+        );
+        newBackground = {
+          type: 'image' as const,
+          url: imageUrl,
+          prompt: videoPlan.backgroundStrategy.imagePrompt,
+        };
+      }
+
+      setVideoPlan((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          backgroundStrategy: newStrategy,
+          hybridVisuals: { ...prev.hybridVisuals, sharedBackground: newBackground },
+        };
+      });
+    } catch (err) {
+      console.error('Failed to toggle background:', err);
+      setChatMessages((prev) => [
+        ...prev,
+        { role: 'model', text: 'Failed to generate new background.', timestamp: new Date() },
+      ]);
+    } finally {
+      setIsRegeneratingBackground(false);
+    }
+  };
+
+  // Handle background regeneration
+  const handleBackgroundRegenerate = async () => {
+    if (!videoPlan || !state.audioFile) return;
+
+    setIsRegeneratingBackground(true);
+
+    try {
+      let newBackground = null;
+      if (videoPlan.backgroundStrategy.useVideo && videoPlan.backgroundStrategy.videoPrompt) {
+        const videoUrl = await generateVideoBackground(
+          videoPlan.backgroundStrategy.videoPrompt,
+          state.aspectRatio === '9:16' ? '9:16' : '16:9'
+        );
+        newBackground = {
+          type: 'video' as const,
+          url: videoUrl,
+          prompt: videoPlan.backgroundStrategy.videoPrompt,
+        };
+      } else if (
+        !videoPlan.backgroundStrategy.useVideo &&
+        videoPlan.backgroundStrategy.imagePrompt
+      ) {
+        const imageUrl = await generateBackground(
+          videoPlan.backgroundStrategy.imagePrompt,
+          state.aspectRatio,
+          '2K'
+        );
+        newBackground = {
+          type: 'image' as const,
+          url: imageUrl,
+          prompt: videoPlan.backgroundStrategy.imagePrompt,
+        };
+      }
+
+      setVideoPlan((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          hybridVisuals: { ...prev.hybridVisuals, sharedBackground: newBackground },
+        };
+      });
+    } catch (err) {
+      console.error('Failed to regenerate background:', err);
+      setChatMessages((prev) => [
+        ...prev,
+        { role: 'model', text: 'Failed to regenerate background.', timestamp: new Date() },
+      ]);
+    } finally {
+      setIsRegeneratingBackground(false);
+    }
+  };
+
   return (
     <div className="flex h-screen w-full bg-[#0f172a] text-white overflow-hidden font-sans">
       {/* BACKGROUND AMBIENCE */}
@@ -661,14 +984,38 @@ const App = () => {
               01. Source Material
             </h3>
             {!state.audioFile && (
-              <textarea
-                className="w-full bg-black/40 border border-white/10 rounded-lg p-3 text-xs text-slate-300 focus:border-pink-500 outline-none transition-colors resize-none h-24"
-                placeholder="(Optional) Paste accurate lyrics here before uploading audio for perfect sync..."
-                value={state.userProvidedLyrics}
-                onChange={(e) =>
-                  setState((prev) => ({ ...prev, userProvidedLyrics: e.target.value }))
-                }
-              />
+              <>
+                {/* Creative Vision Input */}
+                <div className="space-y-1">
+                  <label className="text-[10px] text-slate-400 flex items-center gap-1">
+                    <SparklesIcon className="w-3 h-3 text-purple-400" />
+                    Creative Vision (Optional)
+                  </label>
+                  <textarea
+                    className="w-full bg-black/40 border border-white/10 rounded-lg p-3 text-xs text-slate-300 focus:border-purple-500 outline-none transition-colors resize-none h-20"
+                    placeholder="Describe your vision: 'Dark and moody with neon accents' or leave blank for AI to decide..."
+                    value={state.userCreativeVision}
+                    onChange={(e) =>
+                      setState((prev) => ({ ...prev, userCreativeVision: e.target.value }))
+                    }
+                  />
+                </div>
+                {/* Lyrics Input */}
+                <div className="space-y-1">
+                  <label className="text-[10px] text-slate-400 flex items-center gap-1">
+                    <LanguageIcon className="w-3 h-3 text-pink-400" />
+                    Lyrics (Optional)
+                  </label>
+                  <textarea
+                    className="w-full bg-black/40 border border-white/10 rounded-lg p-3 text-xs text-slate-300 focus:border-pink-500 outline-none transition-colors resize-none h-24"
+                    placeholder="Paste accurate lyrics here for perfect sync..."
+                    value={state.userProvidedLyrics}
+                    onChange={(e) =>
+                      setState((prev) => ({ ...prev, userProvidedLyrics: e.target.value }))
+                    }
+                  />
+                </div>
+              </>
             )}
             <div className="relative group">
               <div className="absolute -inset-0.5 bg-gradient-to-r from-pink-600 to-purple-600 rounded-xl blur opacity-25 group-hover:opacity-75 transition duration-1000 group-hover:duration-200"></div>
@@ -1869,6 +2216,27 @@ const App = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* VIDEO PLAN PANEL */}
+      {showPlanPanel && videoPlan && (
+        <VideoPlanPanel
+          plan={videoPlan}
+          lyrics={state.lyrics}
+          isGenerating={isGeneratingPlan}
+          onRegenerate={handleRegeneratePlan}
+          onApply={handleApplyPlan}
+          onModifyViaChat={handleModifyPlanViaChat}
+          onMoodEdit={handleMoodEdit}
+          onPaletteEdit={handlePaletteEdit}
+          onStyleEdit={handleStyleEdit}
+          onRegeneratePeakVisual={handleRegeneratePeakVisual}
+          regeneratingPeakId={regeneratingPeakId}
+          onBackgroundToggle={handleBackgroundToggle}
+          onBackgroundRegenerate={handleBackgroundRegenerate}
+          isRegeneratingBackground={isRegeneratingBackground}
+          onClose={() => setShowPlanPanel(false)}
+        />
       )}
     </div>
   );

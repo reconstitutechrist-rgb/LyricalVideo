@@ -6,6 +6,15 @@ import {
   AspectRatio,
   Genre,
   GenreDetectionResult,
+  EmotionalPeak,
+  CrossVerifiedAnalysis,
+  VideoPlan,
+  VideoPlanMood,
+  VideoPlanColorPalette,
+  VideoPlanVisualStyle,
+  VideoPlanEffect,
+  VisualStyle,
+  GeneratedAsset,
 } from '../types';
 
 // Helper to base64 encode
@@ -447,5 +456,557 @@ Consider the tempo, instruments, vocal style, and emotional content.`,
     colorPalette: json.colorPalette || ['#FF00FF', '#00FFFF', '#FFFF00', '#FF0066', '#00FF99'],
     textEffects: json.textEffects || ['wave', 'fade'],
     mood: json.mood || 'neutral',
+  };
+};
+
+// 9. Detect Emotional Peaks in Song
+export const detectEmotionalPeaks = async (
+  lyrics: LyricLine[],
+  audioFile: File
+): Promise<EmotionalPeak[]> => {
+  const ai = await getAI();
+  const base64Audio = await fileToBase64(audioFile);
+
+  // Format lyrics for analysis
+  const formattedLyrics = lyrics
+    .map(
+      (line, idx) =>
+        `[${idx}] (${line.startTime.toFixed(2)}s - ${line.endTime.toFixed(2)}s) ${line.section || ''}: "${line.text}"`
+    )
+    .join('\n');
+
+  const responseSchema: Schema = {
+    type: Type.ARRAY,
+    items: {
+      type: Type.OBJECT,
+      properties: {
+        lyricIndex: { type: Type.NUMBER, description: 'Index of the lyric line' },
+        peakType: {
+          type: Type.STRING,
+          enum: ['chorus', 'climax', 'bridge', 'outro', 'energy_spike'],
+          description: 'Type of emotional peak',
+        },
+        intensity: {
+          type: Type.NUMBER,
+          description: 'Intensity from 0 to 1',
+        },
+        suggestedVisual: {
+          type: Type.STRING,
+          description: 'Visual concept for this moment',
+        },
+      },
+      required: ['lyricIndex', 'peakType', 'intensity'],
+    },
+  };
+
+  const response = await ai.models.generateContent({
+    model: 'gemini-3-flash-preview',
+    contents: {
+      parts: [
+        { inlineData: { mimeType: audioFile.type, data: base64Audio } },
+        {
+          text: `Analyze this audio and the following lyrics to identify emotional peaks.
+
+LYRICS WITH TIMING:
+${formattedLyrics}
+
+Identify:
+1. CHORUS sections - High-energy, repeated parts
+2. CLIMAX moments - The highest emotional/energy points
+3. BRIDGE sections - Contrasting parts building tension
+4. ENERGY SPIKES - Individual lines with powerful impact
+
+For each peak, provide:
+- lyricIndex: The index number from the lyrics
+- peakType: One of chorus, climax, bridge, outro, energy_spike
+- intensity: 0-1 rating (only include peaks with intensity > 0.6)
+- suggestedVisual: Brief visual concept for this moment
+
+Listen to the actual audio energy levels, not just the lyrics.`,
+        },
+      ],
+    },
+    config: {
+      responseMimeType: 'application/json',
+      responseSchema: responseSchema,
+    },
+  });
+
+  const peaks = JSON.parse(response.text || '[]');
+
+  return peaks.map(
+    (
+      peak: {
+        lyricIndex: number;
+        peakType: string;
+        intensity: number;
+        suggestedVisual?: string;
+      },
+      idx: number
+    ) => {
+      const lyric = lyrics[peak.lyricIndex];
+      return {
+        id: `peak-${idx}`,
+        lyricIndex: peak.lyricIndex,
+        startTime: lyric?.startTime || 0,
+        endTime: lyric?.endTime || 0,
+        peakType: peak.peakType as EmotionalPeak['peakType'],
+        intensity: peak.intensity,
+        suggestedVisual: peak.suggestedVisual,
+      };
+    }
+  );
+};
+
+// 10. Generate Visual for Emotional Peak
+export const generatePeakVisual = async (
+  peak: EmotionalPeak,
+  lyrics: LyricLine[],
+  mood: VideoPlanMood,
+  aspectRatio: AspectRatio = '16:9'
+): Promise<GeneratedAsset> => {
+  const ai = await getAI();
+
+  // Get the lyric text for this peak
+  const lyricText = lyrics[peak.lyricIndex]?.text || '';
+
+  // Build a contextual prompt
+  const prompt = `Create an abstract, artistic background image for a music video lyric visualization.
+
+CONTEXT:
+- Lyric: "${lyricText}"
+- Moment type: ${peak.peakType}
+- Emotional intensity: ${Math.round(peak.intensity * 100)}%
+- Overall mood: ${mood.primary} (${mood.description})
+${peak.suggestedVisual ? `- Visual concept: ${peak.suggestedVisual}` : ''}
+
+STYLE REQUIREMENTS:
+- Abstract and artistic, suitable as a background
+- Rich colors that match the ${mood.primary} mood
+- ${peak.intensity > 0.8 ? 'High energy, dynamic composition' : 'Flowing, atmospheric feel'}
+- NO text or words in the image
+- Cinematic quality, suitable for 4K video
+
+Create a visually striking background that enhances the emotional impact of this moment.`;
+
+  const response = await ai.models.generateContent({
+    model: 'gemini-3-pro-image-preview',
+    contents: { parts: [{ text: prompt }] },
+    config: {
+      imageConfig: {
+        aspectRatio: aspectRatio,
+      },
+    },
+  });
+
+  for (const part of response.candidates?.[0]?.content?.parts || []) {
+    if (part.inlineData) {
+      return {
+        type: 'image',
+        url: `data:image/png;base64,${part.inlineData.data}`,
+        prompt: prompt,
+      };
+    }
+  }
+  throw new Error('Failed to generate peak visual');
+};
+
+// 11. Generate Complete Video Plan
+export const generateVideoPlan = async (
+  audioFile: File,
+  analysis: CrossVerifiedAnalysis,
+  emotionalPeaks: EmotionalPeak[],
+  lyrics: LyricLine[],
+  userCreativeVision?: string
+): Promise<Omit<VideoPlan, 'hybridVisuals' | 'backgroundStrategy' | 'userCreativeVision'>> => {
+  const ai = await getAI();
+  const base64Audio = await fileToBase64(audioFile);
+
+  // Available effects for the AI to choose from
+  const availableBackgroundEffects = [
+    {
+      id: 'hiphop-urban',
+      name: 'Hip Hop Urban',
+      description: 'Bold geometric shapes, graffiti-inspired',
+    },
+    {
+      id: 'rock-energy',
+      name: 'Rock Energy',
+      description: 'High energy with stage lighting, distortion',
+    },
+    {
+      id: 'electronic-edm',
+      name: 'Electronic EDM',
+      description: 'Neon grids, synthwave aesthetics',
+    },
+    {
+      id: 'classical-elegant',
+      name: 'Classical Elegant',
+      description: 'Refined and minimal with soft particles',
+    },
+    {
+      id: 'pop-vibrant',
+      name: 'Pop Vibrant',
+      description: 'Bright and playful with bouncy shapes',
+    },
+    { id: 'indie-dreamy', name: 'Indie Dreamy', description: 'Vintage soft bokeh with film grain' },
+  ];
+
+  const availableLyricEffects = [
+    {
+      id: 'character-pop',
+      name: 'Character Pop',
+      description: 'Bounce-in animation per character',
+    },
+    { id: 'wave', name: 'Wave', description: 'Sine wave animation on characters' },
+    { id: 'rainbow-cycle', name: 'Rainbow Cycle', description: 'Cycling rainbow colors' },
+    { id: 'gravity-fall', name: 'Gravity Fall', description: 'Characters fall with physics' },
+    { id: 'explode', name: 'Explode', description: 'Text shatters into fragments' },
+    { id: 'flip', name: 'Flip', description: '3D flip animation' },
+    { id: 'particle-burst', name: 'Particle Burst', description: 'Particles burst from text' },
+  ];
+
+  const responseSchema: Schema = {
+    type: Type.OBJECT,
+    properties: {
+      mood: {
+        type: Type.OBJECT,
+        properties: {
+          primary: { type: Type.STRING },
+          secondary: { type: Type.STRING },
+          intensity: { type: Type.STRING, enum: ['low', 'medium', 'high'] },
+          description: { type: Type.STRING },
+        },
+        required: ['primary', 'intensity', 'description'],
+      },
+      colorPalette: {
+        type: Type.OBJECT,
+        properties: {
+          name: { type: Type.STRING },
+          primary: { type: Type.STRING },
+          secondary: { type: Type.STRING },
+          accent: { type: Type.STRING },
+          background: { type: Type.STRING },
+          text: { type: Type.STRING },
+        },
+        required: ['name', 'primary', 'secondary', 'accent', 'background', 'text'],
+      },
+      visualStyle: {
+        type: Type.OBJECT,
+        properties: {
+          style: { type: Type.STRING, enum: Object.values(VisualStyle) },
+          textAnimation: {
+            type: Type.STRING,
+            enum: ['NONE', 'TYPEWRITER', 'FADE_CHARS', 'KINETIC', 'BOUNCE'],
+          },
+          fontFamily: {
+            type: Type.STRING,
+            enum: ['Space Grotesk', 'Inter', 'Roboto', 'Montserrat', 'Cinzel'],
+          },
+          blendMode: { type: Type.STRING },
+          intensity: { type: Type.NUMBER },
+          particleSpeed: { type: Type.NUMBER },
+        },
+        required: ['style', 'textAnimation', 'fontFamily', 'intensity', 'particleSpeed'],
+      },
+      backgroundEffect: {
+        type: Type.OBJECT,
+        properties: {
+          effectId: { type: Type.STRING },
+          name: { type: Type.STRING },
+          description: { type: Type.STRING },
+          reason: { type: Type.STRING },
+        },
+        required: ['effectId', 'name', 'description'],
+      },
+      lyricEffects: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            effectId: { type: Type.STRING },
+            name: { type: Type.STRING },
+            description: { type: Type.STRING },
+            reason: { type: Type.STRING },
+          },
+          required: ['effectId', 'name', 'description'],
+        },
+      },
+      summary: { type: Type.STRING },
+      rationale: { type: Type.STRING },
+    },
+    required: [
+      'mood',
+      'colorPalette',
+      'visualStyle',
+      'backgroundEffect',
+      'lyricEffects',
+      'summary',
+      'rationale',
+    ],
+  };
+
+  const visionSection = userCreativeVision
+    ? `\nUSER'S CREATIVE VISION:\n"${userCreativeVision}"\n\nIMPORTANT: Incorporate the user's vision into all creative decisions. Their preferences should guide the mood, colors, and overall aesthetic.\n`
+    : '';
+
+  const prompt = `You are a creative director creating a comprehensive video plan for a lyric video.
+
+SONG ANALYSIS:
+- Detected Genre: ${analysis.consensusGenre} (${Math.round(analysis.confidence * 100)}% confidence)
+- Mood: ${analysis.consensusMood}
+- Number of emotional peaks: ${emotionalPeaks.length}
+- Peak types: ${[...new Set(emotionalPeaks.map((p) => p.peakType))].join(', ')}
+${visionSection}
+AVAILABLE BACKGROUND EFFECTS:
+${availableBackgroundEffects.map((e) => `- ${e.id}: ${e.name} - ${e.description}`).join('\n')}
+
+AVAILABLE LYRIC EFFECTS:
+${availableLyricEffects.map((e) => `- ${e.id}: ${e.name} - ${e.description}`).join('\n')}
+
+Create a cohesive video plan that includes:
+1. Overall mood description (primary emotion, intensity, detailed description)
+2. Color palette with 5 colors (name it, provide hex codes for primary, secondary, accent, background, text)
+3. Visual style settings (choose style, text animation, font, blend mode, intensity 0.5-3, particle speed 0.1-3)
+4. One background effect that matches the genre
+5. 1-3 lyric effects that complement the mood
+6. A brief summary and creative rationale${userCreativeVision ? " (reference how you incorporated the user's creative vision)" : ''}
+
+Be creative but cohesive - all elements should work together harmoniously.`;
+
+  const response = await ai.models.generateContent({
+    model: 'gemini-3-pro-preview',
+    contents: {
+      parts: [{ inlineData: { mimeType: audioFile.type, data: base64Audio } }, { text: prompt }],
+    },
+    config: {
+      responseMimeType: 'application/json',
+      responseSchema: responseSchema,
+    },
+  });
+
+  const json = JSON.parse(response.text || '{}');
+
+  // Build the color palette with gradient
+  const palette: VideoPlanColorPalette = {
+    name: json.colorPalette.name || 'Custom Palette',
+    primary: json.colorPalette.primary || '#6366f1',
+    secondary: json.colorPalette.secondary || '#8b5cf6',
+    accent: json.colorPalette.accent || '#ec4899',
+    background: json.colorPalette.background || '#0f0f0f',
+    text: json.colorPalette.text || '#ffffff',
+    previewGradient: `linear-gradient(135deg, ${json.colorPalette.primary}, ${json.colorPalette.secondary}, ${json.colorPalette.accent})`,
+  };
+
+  // Build mood
+  const mood: VideoPlanMood = {
+    primary: json.mood.primary || 'Energetic',
+    secondary: json.mood.secondary,
+    intensity: json.mood.intensity || 'medium',
+    description: json.mood.description || 'A dynamic and expressive mood',
+  };
+
+  // Build visual style
+  const visualStyle: VideoPlanVisualStyle = {
+    style: (json.visualStyle.style as VisualStyle) || VisualStyle.NEON_PULSE,
+    textAnimation: json.visualStyle.textAnimation || 'FADE_CHARS',
+    fontFamily: json.visualStyle.fontFamily || 'Space Grotesk',
+    blendMode: json.visualStyle.blendMode || 'screen',
+    intensity: json.visualStyle.intensity || 1.5,
+    particleSpeed: json.visualStyle.particleSpeed || 1.0,
+  };
+
+  // Build background effect
+  const backgroundEffect: VideoPlanEffect = {
+    effectId: json.backgroundEffect.effectId || 'pop-vibrant',
+    name: json.backgroundEffect.name || 'Pop Vibrant',
+    description: json.backgroundEffect.description || 'Bright and colorful background',
+    parameters: {},
+    reason: json.backgroundEffect.reason,
+  };
+
+  // Build lyric effects
+  const lyricEffects: VideoPlanEffect[] = (json.lyricEffects || []).map(
+    (e: { effectId: string; name: string; description: string; reason?: string }) => ({
+      effectId: e.effectId,
+      name: e.name,
+      description: e.description,
+      parameters: {},
+      reason: e.reason,
+    })
+  );
+
+  return {
+    id: `plan-${Date.now()}`,
+    createdAt: new Date(),
+    version: 1,
+    status: 'draft',
+    analysis,
+    emotionalPeaks,
+    mood,
+    colorPalette: palette,
+    visualStyle,
+    backgroundEffect,
+    lyricEffects,
+    summary: json.summary || 'AI-generated video plan',
+    rationale: json.rationale || 'Plan created based on audio analysis',
+  };
+};
+
+// 12. Modify Video Plan via Instruction
+export const modifyVideoPlan = async (
+  currentPlan: VideoPlan,
+  instruction: string
+): Promise<VideoPlan> => {
+  const ai = await getAI();
+
+  const responseSchema: Schema = {
+    type: Type.OBJECT,
+    properties: {
+      mood: {
+        type: Type.OBJECT,
+        properties: {
+          primary: { type: Type.STRING },
+          secondary: { type: Type.STRING },
+          intensity: { type: Type.STRING, enum: ['low', 'medium', 'high'] },
+          description: { type: Type.STRING },
+        },
+      },
+      colorPalette: {
+        type: Type.OBJECT,
+        properties: {
+          name: { type: Type.STRING },
+          primary: { type: Type.STRING },
+          secondary: { type: Type.STRING },
+          accent: { type: Type.STRING },
+          background: { type: Type.STRING },
+          text: { type: Type.STRING },
+        },
+      },
+      visualStyle: {
+        type: Type.OBJECT,
+        properties: {
+          style: { type: Type.STRING },
+          textAnimation: { type: Type.STRING },
+          fontFamily: { type: Type.STRING },
+          blendMode: { type: Type.STRING },
+          intensity: { type: Type.NUMBER },
+          particleSpeed: { type: Type.NUMBER },
+        },
+      },
+      backgroundEffect: {
+        type: Type.OBJECT,
+        properties: {
+          effectId: { type: Type.STRING },
+          name: { type: Type.STRING },
+          description: { type: Type.STRING },
+          reason: { type: Type.STRING },
+        },
+      },
+      lyricEffects: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            effectId: { type: Type.STRING },
+            name: { type: Type.STRING },
+            description: { type: Type.STRING },
+            reason: { type: Type.STRING },
+          },
+        },
+      },
+      summary: { type: Type.STRING },
+      rationale: { type: Type.STRING },
+    },
+  };
+
+  const prompt = `You are modifying an existing video plan based on user feedback.
+
+CURRENT PLAN:
+${JSON.stringify(
+  {
+    mood: currentPlan.mood,
+    colorPalette: currentPlan.colorPalette,
+    visualStyle: currentPlan.visualStyle,
+    backgroundEffect: currentPlan.backgroundEffect,
+    lyricEffects: currentPlan.lyricEffects,
+  },
+  null,
+  2
+)}
+
+USER INSTRUCTION: "${instruction}"
+
+Modify the plan according to the user's request. Keep elements that weren't explicitly mentioned.
+Examples of modifications:
+- "make it more energetic" -> increase intensity, faster animations, brighter/warmer colors
+- "darker colors" -> shift palette to darker tones
+- "add more movement" -> add physics-based lyric effects
+- "calmer" -> reduce intensity, slower speeds, softer/cooler colors
+- "more retro" -> vintage colors, classic fonts
+
+Return the complete modified plan with updated summary and rationale.`;
+
+  const response = await ai.models.generateContent({
+    model: 'gemini-3-pro-preview',
+    contents: { parts: [{ text: prompt }] },
+    config: {
+      responseMimeType: 'application/json',
+      responseSchema: responseSchema,
+    },
+  });
+
+  const json = JSON.parse(response.text || '{}');
+
+  // Merge modifications with current plan
+  return {
+    ...currentPlan,
+    id: `plan-${Date.now()}`,
+    version: currentPlan.version + 1,
+    mood: {
+      primary: json.mood?.primary || currentPlan.mood.primary,
+      secondary: json.mood?.secondary || currentPlan.mood.secondary,
+      intensity: json.mood?.intensity || currentPlan.mood.intensity,
+      description: json.mood?.description || currentPlan.mood.description,
+    },
+    colorPalette: {
+      name: json.colorPalette?.name || currentPlan.colorPalette.name,
+      primary: json.colorPalette?.primary || currentPlan.colorPalette.primary,
+      secondary: json.colorPalette?.secondary || currentPlan.colorPalette.secondary,
+      accent: json.colorPalette?.accent || currentPlan.colorPalette.accent,
+      background: json.colorPalette?.background || currentPlan.colorPalette.background,
+      text: json.colorPalette?.text || currentPlan.colorPalette.text,
+      previewGradient: `linear-gradient(135deg, ${json.colorPalette?.primary || currentPlan.colorPalette.primary}, ${json.colorPalette?.secondary || currentPlan.colorPalette.secondary}, ${json.colorPalette?.accent || currentPlan.colorPalette.accent})`,
+    },
+    visualStyle: {
+      style: (json.visualStyle?.style as VisualStyle) || currentPlan.visualStyle.style,
+      textAnimation: json.visualStyle?.textAnimation || currentPlan.visualStyle.textAnimation,
+      fontFamily: json.visualStyle?.fontFamily || currentPlan.visualStyle.fontFamily,
+      blendMode: json.visualStyle?.blendMode || currentPlan.visualStyle.blendMode,
+      intensity: json.visualStyle?.intensity ?? currentPlan.visualStyle.intensity,
+      particleSpeed: json.visualStyle?.particleSpeed ?? currentPlan.visualStyle.particleSpeed,
+    },
+    backgroundEffect: json.backgroundEffect
+      ? {
+          effectId: json.backgroundEffect.effectId,
+          name: json.backgroundEffect.name,
+          description: json.backgroundEffect.description,
+          parameters: {},
+          reason: json.backgroundEffect.reason,
+        }
+      : currentPlan.backgroundEffect,
+    lyricEffects: json.lyricEffects?.length
+      ? json.lyricEffects.map(
+          (e: { effectId: string; name: string; description: string; reason?: string }) => ({
+            effectId: e.effectId,
+            name: e.name,
+            description: e.description,
+            parameters: {},
+            reason: e.reason,
+          })
+        )
+      : currentPlan.lyricEffects,
+    summary: json.summary || currentPlan.summary,
+    rationale: json.rationale || `Modified: ${instruction}`,
   };
 };
