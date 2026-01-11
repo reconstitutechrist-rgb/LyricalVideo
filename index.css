@@ -746,3 +746,107 @@ input[type='range'].cyan-range::-moz-range-thumb {
   background-position: center;
   background-repeat: no-repeat;
 }
+
+/* ========================================
+   Conversational AI Chat Styles
+   ======================================== */
+
+/* AI message bubble */
+.chat-ai-bubble {
+  background: linear-gradient(135deg, rgba(0, 30, 60, 0.8) 0%, rgba(0, 40, 80, 0.7) 100%);
+  border: 1px solid rgba(0, 212, 255, 0.2);
+  box-shadow:
+    0 4px 16px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(0, 212, 255, 0.1);
+}
+
+/* User message bubble */
+.chat-user-bubble {
+  background: linear-gradient(135deg, rgba(147, 51, 234, 0.3) 0%, rgba(126, 34, 206, 0.2) 100%);
+  border: 1px solid rgba(147, 51, 234, 0.3);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+/* Audio dropzone in chat */
+.chat-dropzone-bubble {
+  background: linear-gradient(135deg, rgba(0, 30, 60, 0.6) 0%, rgba(0, 40, 80, 0.4) 100%);
+  border: 2px dashed rgba(0, 212, 255, 0.25);
+  border-radius: 16px;
+  transition: all 0.3s ease;
+}
+
+.chat-dropzone-bubble:hover {
+  border-color: rgba(0, 212, 255, 0.5);
+  background: linear-gradient(135deg, rgba(0, 40, 80, 0.7) 0%, rgba(0, 50, 100, 0.5) 100%);
+  box-shadow: 0 0 20px rgba(0, 212, 255, 0.15);
+}
+
+.chat-dropzone-bubble.drag-active {
+  border-color: rgba(0, 212, 255, 0.8);
+  background: rgba(0, 212, 255, 0.1);
+  box-shadow:
+    0 0 30px rgba(0, 212, 255, 0.3),
+    inset 0 0 20px rgba(0, 212, 255, 0.05);
+}
+
+/* Lyrics/Vision input in chat */
+.chat-lyrics-input {
+  background: linear-gradient(135deg, rgba(0, 30, 60, 0.6) 0%, rgba(0, 40, 80, 0.4) 100%);
+  border: 1px solid rgba(0, 212, 255, 0.15);
+  border-radius: 16px;
+}
+
+.chat-lyrics-input textarea {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(0, 212, 255, 0.1);
+  border-radius: 12px;
+  color: #e2e8f0;
+  font-size: 13px;
+  line-height: 1.5;
+  transition: border-color 0.2s ease;
+}
+
+.chat-lyrics-input textarea:focus {
+  outline: none;
+  border-color: rgba(0, 212, 255, 0.4);
+}
+
+.chat-lyrics-input textarea::placeholder {
+  color: rgba(148, 163, 184, 0.6);
+}
+
+/* Typing indicator animation */
+.typing-indicator {
+  display: flex;
+  gap: 4px;
+  padding: 0.5rem 1rem;
+}
+
+.typing-dot {
+  width: 6px;
+  height: 6px;
+  background: #00d4ff;
+  border-radius: 50%;
+  animation: typingBounce 1.2s ease-in-out infinite;
+}
+
+.typing-dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.typing-dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes typingBounce {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.5;
+  }
+  30% {
+    transform: translateY(-8px);
+    opacity: 1;
+  }
+}

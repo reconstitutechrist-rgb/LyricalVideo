@@ -201,7 +201,7 @@ const App = () => {
   const [videoPlan, setVideoPlan] = useState<VideoPlan | null>(null);
   const [_videoPlanHistory, setVideoPlanHistory] = useState<VideoPlan[]>([]); // History for future undo feature
   const [isGeneratingPlan, setIsGeneratingPlan] = useState(false);
-  const [showPlanPanel, setShowPlanPanel] = useState(false);
+  const [showPlanPanel, setShowPlanPanel] = useState(true);
   const [regeneratingPeakId, setRegeneratingPeakId] = useState<string | null>(null);
   const [isRegeneratingBackground, setIsRegeneratingBackground] = useState(false);
 
@@ -215,6 +215,7 @@ const App = () => {
   }, []);
 
   const [isProcessing, setIsProcessing] = useState(false);
+  const [processingStatus, setProcessingStatus] = useState('');
   const [chatOpen, setChatOpen] = useState(true);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
     {
@@ -340,6 +341,150 @@ const App = () => {
         .finally(() => {
           setIsGeneratingPlan(false);
           setIsDetectingGenre(false);
+        });
+    } catch (err) {
+      console.error(err);
+      setChatMessages((prev) => [
+        ...prev,
+        { role: 'model', text: 'Error analyzing audio. Please try again.', timestamp: new Date() },
+      ]);
+    } finally {
+      setIsProcessing(false);
+      setProcessingStatus('');
+    }
+  };
+
+  // Handle file drop from AI panel onboarding - ONLY processes audio, does NOT generate plan
+  // Plan generation is triggered separately after user completes onboarding flow
+  const handleFileDrop = async (file: File) => {
+    const url = URL.createObjectURL(file);
+    setIsProcessing(true);
+    setProcessingStatus('Decoding audio...');
+
+    try {
+      // Decode for waveform
+      const buffer = await decodeAudio(file);
+      setProcessingStatus('Audio ready!');
+
+      setState((prev) => ({
+        ...prev,
+        audioFile: file,
+        audioUrl: url,
+        audioBuffer: buffer,
+      }));
+
+      // Don't generate plan yet - wait for user to complete onboarding
+      // The onboarding flow will call generateVideoPlanFromOnboarding when ready
+    } catch (err) {
+      console.error(err);
+      setChatMessages((prev) => [
+        ...prev,
+        { role: 'model', text: 'Error processing audio. Please try again.', timestamp: new Date() },
+      ]);
+    } finally {
+      setIsProcessing(false);
+      setProcessingStatus('');
+    }
+  };
+
+  // Handle lyrics submit from AI panel onboarding
+  const handleLyricsSubmitFromPanel = (lyrics: string) => {
+    setState((prev) => ({ ...prev, userProvidedLyrics: lyrics }));
+  };
+
+  // Handle creative vision submit from AI panel onboarding - triggers plan generation
+  const handleVisionSubmitFromPanel = async (vision: string) => {
+    // Update vision in state
+    setState((prev) => ({ ...prev, userCreativeVision: vision }));
+
+    // Now generate the full video plan with the user's inputs
+    const file = state.audioFile;
+    if (!file) return;
+
+    // Get the latest lyrics (may have been set by handleLyricsSubmitFromPanel)
+    const currentLyrics = state.userProvidedLyrics;
+
+    setIsProcessing(true);
+    setProcessingStatus('Analyzing lyrics...');
+
+    try {
+      // Analyze lyrics with the user-provided lyrics
+      const { lyrics, metadata } = await analyzeAudioAndGetLyrics(file, currentLyrics);
+      setState((prev) => ({
+        ...prev,
+        lyrics,
+        metadata,
+      }));
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          role: 'model',
+          text: `Analyzed "${metadata.title}" (${metadata.genre}). Lyrics aligned and ready!`,
+          timestamp: new Date(),
+        },
+      ]);
+
+      // Generate full video plan with multi-AI analysis
+      setIsGeneratingPlan(true);
+      setIsDetectingGenre(true);
+      setProcessingStatus('Generating video plan...');
+
+      aiOrchestrator
+        .generateFullVideoPlan(
+          file,
+          currentLyrics,
+          vision, // Use the vision parameter directly (most up-to-date)
+          state.aspectRatio,
+          (status) => {
+            setProcessingStatus(status);
+            setChatMessages((prev) => [
+              ...prev,
+              { role: 'model', text: status, timestamp: new Date() },
+            ]);
+          }
+        )
+        .then((plan) => {
+          setVideoPlan(plan);
+          setShowPlanPanel(true);
+          setState((prev) => ({
+            ...prev,
+            detectedGenre: plan.analysis.consensusGenre,
+          }));
+          setChatMessages((prev) => [
+            ...prev,
+            {
+              role: 'model',
+              text: `Video plan created! Genre: ${plan.analysis.consensusGenre} (${Math.round(plan.analysis.confidence * 100)}% confidence). Found ${plan.emotionalPeaks.length} emotional peaks. Review and customize your plan!`,
+              timestamp: new Date(),
+            },
+          ]);
+        })
+        .catch((err) => {
+          console.error('Video plan generation failed:', err);
+          // Fall back to just genre detection
+          detectMusicGenre(file)
+            .then((result) => {
+              setState((prev) => ({
+                ...prev,
+                detectedGenre: result.genre,
+              }));
+              setChatMessages((prev) => [
+                ...prev,
+                {
+                  role: 'model',
+                  text: `Genre detected: ${result.genre} (${Math.round(result.confidence * 100)}% confidence). Video plan generation failed, but you can still proceed with manual settings.`,
+                  timestamp: new Date(),
+                },
+              ]);
+            })
+            .catch((genreErr) => {
+              console.error('Genre detection also failed:', genreErr);
+            });
+        })
+        .finally(() => {
+          setIsGeneratingPlan(false);
+          setIsDetectingGenre(false);
+          setProcessingStatus('');
         });
     } catch (err) {
       console.error(err);
@@ -1136,7 +1281,7 @@ const App = () => {
         )}
 
         {/* Video Plan Panel */}
-        {showPlanPanel && videoPlan && (
+        {showPlanPanel && (
           <VideoPlanPanel
             plan={videoPlan}
             lyrics={state.lyrics}
@@ -1153,6 +1298,12 @@ const App = () => {
             onBackgroundRegenerate={handleBackgroundRegenerate}
             isRegeneratingBackground={isRegeneratingBackground}
             onClose={() => setShowPlanPanel(false)}
+            audioFile={state.audioFile}
+            onFileDrop={handleFileDrop}
+            onLyricsSubmit={handleLyricsSubmitFromPanel}
+            onVisionSubmit={handleVisionSubmitFromPanel}
+            processingStatus={processingStatus}
+            isProcessingAudio={isProcessing}
           />
         )}
       </>
@@ -2430,7 +2581,7 @@ const App = () => {
       )}
 
       {/* VIDEO PLAN PANEL */}
-      {showPlanPanel && videoPlan && (
+      {showPlanPanel && (
         <VideoPlanPanel
           plan={videoPlan}
           lyrics={state.lyrics}
@@ -2447,6 +2598,12 @@ const App = () => {
           onBackgroundRegenerate={handleBackgroundRegenerate}
           isRegeneratingBackground={isRegeneratingBackground}
           onClose={() => setShowPlanPanel(false)}
+          audioFile={state.audioFile}
+          onFileDrop={handleFileDrop}
+          onLyricsSubmit={handleLyricsSubmitFromPanel}
+          onVisionSubmit={handleVisionSubmitFromPanel}
+          processingStatus={processingStatus}
+          isProcessingAudio={isProcessing}
         />
       )}
 
