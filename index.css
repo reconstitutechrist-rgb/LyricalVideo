@@ -1,3 +1,7 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 /* Custom Scrollbar */
 .custom-scrollbar::-webkit-scrollbar {
   width: 6px;
@@ -181,4 +185,322 @@
 /* Custom gray-750 background color */
 .bg-gray-750 {
   background-color: rgb(38, 42, 51);
+}
+
+/* ========================================
+   Lyrical Flow Glass UI System
+   ======================================== */
+
+/* Glass Panel - Main container panels */
+.glass-panel {
+  background: linear-gradient(
+    135deg,
+    rgba(0, 20, 40, 0.95) 0%,
+    rgba(0, 30, 60, 0.9) 50%,
+    rgba(0, 20, 50, 0.95) 100%
+  );
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(0, 212, 255, 0.15);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(0, 212, 255, 0.1);
+}
+
+/* Glass Card - Smaller card elements */
+.glass-card {
+  background: linear-gradient(135deg, rgba(0, 30, 60, 0.6) 0%, rgba(0, 40, 80, 0.4) 100%);
+  border: 1px solid rgba(0, 212, 255, 0.1);
+  border-radius: 12px;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.glass-card:hover {
+  border-color: rgba(0, 212, 255, 0.25);
+}
+
+.glass-card.active {
+  border-color: rgba(0, 212, 255, 0.5);
+  background: rgba(0, 212, 255, 0.15);
+  box-shadow: 0 0 20px rgba(0, 212, 255, 0.3);
+}
+
+/* Cyan Gradient Text */
+.text-gradient-cyan {
+  background: linear-gradient(90deg, #00d4ff, #0088ff, #00ffcc);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Cyan Gradient Button */
+.btn-gradient-cyan {
+  background: linear-gradient(135deg, #00d4ff, #0088ff);
+  box-shadow: 0 0 20px rgba(0, 212, 255, 0.4);
+  transition:
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
+}
+
+.btn-gradient-cyan:hover {
+  box-shadow: 0 0 30px rgba(0, 212, 255, 0.6);
+  transform: scale(1.02);
+}
+
+.btn-gradient-cyan:active {
+  transform: scale(0.98);
+}
+
+/* Numbered Step Circle */
+.step-circle {
+  background: linear-gradient(135deg, #00d4ff, #0088ff);
+}
+
+/* Energy Orb Background Effect */
+.energy-orb {
+  background: radial-gradient(
+    circle at 30% 30%,
+    rgba(0, 212, 255, 0.4) 0%,
+    rgba(0, 136, 255, 0.2) 30%,
+    rgba(0, 100, 200, 0.1) 50%,
+    transparent 70%
+  );
+  filter: blur(40px);
+  pointer-events: none;
+}
+
+/* Equalizer Bar Animation */
+@keyframes equalizerBounce {
+  0%,
+  100% {
+    transform: scaleY(0.4);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+.equalizer-bar {
+  background: linear-gradient(to top, #00d4ff, #00ffcc);
+  box-shadow: 0 0 10px rgba(0, 212, 255, 0.5);
+  transform-origin: bottom;
+  animation: equalizerBounce 0.8s ease-in-out infinite;
+}
+
+/* Sound Wave Animation */
+@keyframes soundWave {
+  0%,
+  100% {
+    transform: scaleY(0.5);
+    opacity: 0.5;
+  }
+  50% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+
+.sound-wave-bar {
+  background: linear-gradient(to top, transparent, #00d4ff, transparent);
+  box-shadow: 0 0 8px rgba(0, 212, 255, 0.3);
+  transform-origin: center;
+  animation: soundWave 1s ease-in-out infinite;
+}
+
+/* Rhythm Dots Animation */
+@keyframes rhythmPulse {
+  0%,
+  100% {
+    transform: scale(0.8);
+    opacity: 0.5;
+  }
+  50% {
+    transform: scale(1.2);
+    opacity: 1;
+  }
+}
+
+.rhythm-dot {
+  background: #00d4ff;
+  box-shadow: 0 0 12px rgba(0, 212, 255, 0.5);
+  animation: rhythmPulse 0.6s ease-in-out infinite;
+}
+
+/* Spinning Ring Animation */
+@keyframes spinSlow {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spin-slow {
+  animation: spinSlow 8s linear infinite;
+}
+
+.spin-slow-reverse {
+  animation: spinSlow 12s linear infinite reverse;
+}
+
+/* Lyric Line Styles */
+.lyric-line {
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.lyric-line.active {
+  background: linear-gradient(90deg, rgba(0, 212, 255, 0.2), transparent);
+  border-left-color: #00d4ff;
+}
+
+.lyric-line.chorus {
+  border-left-color: #00ffcc;
+}
+
+/* Playback Progress Track */
+.progress-track {
+  background: linear-gradient(to right, rgba(0, 212, 255, 0.3), rgba(0, 136, 255, 0.2));
+}
+
+.progress-fill {
+  background: linear-gradient(90deg, #00d4ff, #0088ff);
+}
+
+.progress-thumb {
+  background: linear-gradient(135deg, #00d4ff, #0088ff);
+  box-shadow: 0 0 10px rgba(0, 212, 255, 0.5);
+}
+
+/* Range Input Styling */
+input[type='range'].cyan-range {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+input[type='range'].cyan-range::-webkit-slider-runnable-track {
+  height: 4px;
+  background: linear-gradient(to right, rgba(0, 212, 255, 0.3), rgba(0, 136, 255, 0.2));
+  border-radius: 2px;
+}
+
+input[type='range'].cyan-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  background: linear-gradient(135deg, #00d4ff, #0088ff);
+  border-radius: 50%;
+  box-shadow: 0 0 10px rgba(0, 212, 255, 0.5);
+  transition: box-shadow 0.2s ease;
+}
+
+input[type='range'].cyan-range::-webkit-slider-thumb:hover {
+  box-shadow: 0 0 15px rgba(0, 212, 255, 0.8);
+}
+
+input[type='range'].cyan-range::-moz-range-track {
+  height: 4px;
+  background: linear-gradient(to right, rgba(0, 212, 255, 0.3), rgba(0, 136, 255, 0.2));
+  border-radius: 2px;
+}
+
+input[type='range'].cyan-range::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  background: linear-gradient(135deg, #00d4ff, #0088ff);
+  border: none;
+  border-radius: 50%;
+  box-shadow: 0 0 10px rgba(0, 212, 255, 0.5);
+}
+
+/* Toggle Switch */
+.toggle-switch {
+  transition: background 0.2s ease;
+}
+
+.toggle-switch.on {
+  background: linear-gradient(90deg, #00d4ff, #0088ff);
+}
+
+.toggle-switch.off {
+  background: rgba(100, 116, 139, 0.5);
+}
+
+.toggle-switch .toggle-knob {
+  transition: transform 0.2s ease;
+}
+
+.toggle-switch.on .toggle-knob {
+  transform: translateX(100%);
+}
+
+/* Chat Message Bubbles */
+.chat-bubble-ai {
+  background: linear-gradient(135deg, rgba(0, 30, 60, 0.6) 0%, rgba(0, 40, 80, 0.4) 100%);
+  border: 1px solid rgba(0, 212, 255, 0.1);
+}
+
+.chat-bubble-user {
+  background: linear-gradient(135deg, #00d4ff, #0088ff);
+}
+
+/* Resize Handle */
+.resize-handle {
+  background: linear-gradient(to right, transparent, rgba(0, 212, 255, 0.1), transparent);
+  transition: background 0.2s ease;
+}
+
+.resize-handle:hover {
+  background: rgba(0, 212, 255, 0.2);
+}
+
+/* Grid Pattern Overlay */
+.grid-pattern {
+  background-image:
+    linear-gradient(rgba(0, 212, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 212, 255, 0.03) 1px, transparent 1px);
+  background-size: 30px 30px;
+}
+
+/* Loading Pulse */
+@keyframes loadingPulse {
+  0%,
+  100% {
+    opacity: 0.5;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.1);
+  }
+}
+
+.loading-pulse {
+  animation: loadingPulse 1.5s ease-in-out infinite;
+}
+
+/* Live Indicator */
+@keyframes liveIndicator {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
+.live-indicator {
+  background: #00d4ff;
+  box-shadow: 0 0 15px rgba(0, 212, 255, 0.5);
+  animation: liveIndicator 1s ease-in-out infinite;
 }

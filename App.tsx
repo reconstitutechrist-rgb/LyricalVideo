@@ -42,6 +42,7 @@ import * as aiOrchestrator from './services/aiOrchestrator';
 import { initializeEffects } from './src/effects';
 import { EffectPanel } from './src/components/EffectPanel';
 import { VideoPlanPanel } from './src/components/VideoPlanPanel';
+import { LyricalFlowWrapper } from './src/components/LyricalFlowUI';
 import {
   AppState,
   LyricLine,
@@ -199,6 +200,10 @@ const App = () => {
   const [showPlanPanel, setShowPlanPanel] = useState(false);
   const [regeneratingPeakId, setRegeneratingPeakId] = useState<string | null>(null);
   const [isRegeneratingBackground, setIsRegeneratingBackground] = useState(false);
+
+  // New UI toggle and audio duration
+  const [useNewUI, setUseNewUI] = useState(true);
+  const [audioDuration, setAudioDuration] = useState(0);
 
   // Initialize effects system on mount
   useEffect(() => {
@@ -957,6 +962,208 @@ const App = () => {
       setIsRegeneratingBackground(false);
     }
   };
+
+  // Handle chat submit - extracted for reuse
+  const handleChatSubmit = async () => {
+    if (!chatInput.trim()) return;
+    const userMsg = { role: 'user' as const, text: chatInput, timestamp: new Date() };
+    setChatMessages((prev) => [...prev, userMsg]);
+    setChatInput('');
+    setIsProcessing(true);
+
+    try {
+      const history = chatMessages.map((m) => ({
+        role: m.role,
+        parts: [{ text: m.text }],
+      }));
+      const response = await sendChatMessage(history, chatInput);
+
+      if (response.text) {
+        setChatMessages((prev) => [
+          ...prev,
+          { role: 'model', text: response.text || '', timestamp: new Date() },
+        ]);
+      }
+
+      // Handle function calls
+      if (response.functionCalls) {
+        for (const call of response.functionCalls) {
+          if (call.name === 'generateBackgroundImage') {
+            const args = call.args as Record<string, unknown>;
+            setChatMessages((prev) => [
+              ...prev,
+              {
+                role: 'model',
+                text: `Generating background image: ${args.prompt}...`,
+                timestamp: new Date(),
+              },
+            ]);
+            const url = await generateBackground(
+              args.prompt as string,
+              (args.aspectRatio as AspectRatio) || '16:9',
+              (args.resolution as ImageSize) || '1K'
+            );
+            setState((prev) => ({
+              ...prev,
+              backgroundAsset: { type: 'image', url, prompt: args.prompt as string },
+            }));
+            setChatMessages((prev) => [
+              ...prev,
+              { role: 'model', text: `Background generated!`, timestamp: new Date() },
+            ]);
+          }
+        }
+      }
+    } catch (err) {
+      console.error(err);
+      setChatMessages((prev) => [
+        ...prev,
+        { role: 'model', text: 'Sorry, I encountered an error.', timestamp: new Date() },
+      ]);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // Track audio duration
+  useEffect(() => {
+    const audio = audioElementRef.current;
+    if (!audio) return;
+
+    const handleLoadedMetadata = () => {
+      setAudioDuration(audio.duration);
+    };
+
+    const handleDurationChange = () => {
+      setAudioDuration(audio.duration);
+    };
+
+    audio.addEventListener('loadedmetadata', handleLoadedMetadata);
+    audio.addEventListener('durationchange', handleDurationChange);
+
+    // If already loaded
+    if (audio.duration) {
+      setAudioDuration(audio.duration);
+    }
+
+    return () => {
+      audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
+      audio.removeEventListener('durationchange', handleDurationChange);
+    };
+  }, [state.audioUrl]);
+
+  // Render new UI if enabled
+  if (useNewUI) {
+    return (
+      <>
+        <LyricalFlowWrapper
+          state={state}
+          setState={setState}
+          chatMessages={chatMessages}
+          chatInput={chatInput}
+          setChatInput={setChatInput}
+          onChatSubmit={handleChatSubmit}
+          chatOpen={chatOpen}
+          setChatOpen={setChatOpen}
+          isProcessing={isProcessing}
+          onFileUpload={handleFileUpload}
+          onShowGenModal={setShowGenModal}
+          audioRef={audioElementRef}
+          duration={audioDuration}
+          canvasRef={canvasRef}
+          mediaStreamDestRef={mediaStreamDestRef}
+        />
+
+        {/* Hidden audio element */}
+        {state.audioUrl && <audio ref={audioElementRef} src={state.audioUrl} className="hidden" />}
+
+        {/* UI Toggle Button */}
+        <button
+          onClick={() => setUseNewUI(false)}
+          className="fixed bottom-4 left-4 z-50 px-3 py-1.5 rounded-full text-xs bg-slate-800 border border-white/10 text-slate-400 hover:text-white hover:bg-slate-700 transition"
+        >
+          Switch to Classic UI
+        </button>
+
+        {/* Generation Modal */}
+        {showGenModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+            <div className="bg-slate-900 border border-white/10 rounded-2xl w-full max-w-md p-6 shadow-2xl animate-fadeIn">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-bold text-white">
+                  Generate {showGenModal === 'image' ? 'Background Image' : 'Background Video'}
+                </h3>
+                <button
+                  onClick={() => setShowGenModal(null)}
+                  className="text-slate-400 hover:text-white"
+                >
+                  <XMarkIcon className="w-5 h-5" />
+                </button>
+              </div>
+              <textarea
+                className="w-full bg-black/40 border border-white/10 rounded-lg p-3 text-sm text-white focus:border-pink-500 outline-none h-24 resize-none mb-4"
+                placeholder="Describe your background..."
+                value={genPrompt}
+                onChange={(e) => setGenPrompt(e.target.value)}
+              />
+              <button
+                onClick={handleGenerate}
+                disabled={isGenerating || !genPrompt.trim()}
+                className={`w-full py-3 rounded-lg font-medium text-sm transition-all flex items-center justify-center gap-2 ${
+                  isGenerating || !genPrompt.trim()
+                    ? 'bg-slate-700 text-slate-400 cursor-not-allowed'
+                    : 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white'
+                }`}
+              >
+                {isGenerating ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <SparklesIcon className="w-4 h-4" />
+                    Generate {showGenModal === 'image' ? 'Image' : 'Video'}
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Video Plan Panel */}
+        {showPlanPanel && videoPlan && (
+          <VideoPlanPanel
+            plan={videoPlan}
+            lyrics={state.lyrics}
+            isGenerating={isGeneratingPlan}
+            onRegenerate={handleRegeneratePlan}
+            onApply={handleApplyPlan}
+            onModifyViaChat={handleModifyPlanViaChat}
+            onMoodEdit={handleMoodEdit}
+            onPaletteEdit={handlePaletteEdit}
+            onStyleEdit={handleStyleEdit}
+            onRegeneratePeakVisual={handleRegeneratePeakVisual}
+            regeneratingPeakId={regeneratingPeakId}
+            onBackgroundToggle={handleBackgroundToggle}
+            onBackgroundRegenerate={handleBackgroundRegenerate}
+            isRegeneratingBackground={isRegeneratingBackground}
+            onClose={() => setShowPlanPanel(false)}
+          />
+        )}
+      </>
+    );
+  }
+
+  // Classic UI toggle button (shown in classic mode)
+  const ClassicUIToggle = (
+    <button
+      onClick={() => setUseNewUI(true)}
+      className="fixed bottom-4 left-4 z-50 px-3 py-1.5 rounded-full text-xs bg-gradient-to-r from-cyan-600 to-blue-600 text-white hover:from-cyan-500 hover:to-blue-500 transition"
+    >
+      Try New UI
+    </button>
+  );
 
   return (
     <div className="flex h-screen w-full bg-[#0f172a] text-white overflow-hidden font-sans">
@@ -2238,6 +2445,9 @@ const App = () => {
           onClose={() => setShowPlanPanel(false)}
         />
       )}
+
+      {/* Toggle to New UI */}
+      {ClassicUIToggle}
     </div>
   );
 };
