@@ -10,11 +10,29 @@ import { LyricLine, VisualSettings, ColorPalette } from '../../../types';
  * Audio frequency data passed to effects
  */
 export interface AudioData {
-  bass: number; // 0-255
-  mid: number; // 0-255
-  treble: number; // 0-255
-  average: number; // 0-255
+  // Frequency bands (0-255)
+  bass: number;
+  mid: number;
+  treble: number;
+  average: number;
   raw: Uint8Array; // Full frequency data
+
+  // Beat detection
+  isBeat: boolean; // True on beat frames
+  beatIntensity: number; // 0-1 strength of detected beat
+  timeSinceBeat: number; // Seconds since last beat (for decay effects)
+
+  // Rhythm info
+  bpm: number; // Estimated tempo
+  beatPhase: number; // 0-1 position within current beat
+
+  // Energy dynamics
+  energy: number; // 0-1 overall energy level
+  energyDelta: number; // Rate of change (positive = buildup)
+
+  // Spectral features
+  spectralCentroid: number; // "Brightness" of sound
+  spectralFlux: number; // Rate of spectral change (onset indicator)
 }
 
 /**

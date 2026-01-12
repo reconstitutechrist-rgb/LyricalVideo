@@ -176,7 +176,7 @@ export type BlendMode =
 // Built-in fonts as literal union for type safety, but allow custom font strings
 export type BuiltinFontFamily = 'Space Grotesk' | 'Inter' | 'Roboto' | 'Montserrat' | 'Cinzel';
 export type FontFamily = BuiltinFontFamily | (string & {}); // Allows custom fonts while keeping intellisense for built-ins
-export type FrequencyBand = 'bass' | 'mid' | 'treble' | 'avg';
+export type FrequencyBand = 'bass' | 'mid' | 'treble' | 'avg' | 'beat' | 'energy';
 
 export interface VisualSettings {
   particleSpeed: number;

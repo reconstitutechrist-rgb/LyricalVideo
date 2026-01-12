@@ -15,6 +15,7 @@ import {
 } from '../types';
 import { EffectRegistry, EffectComposer } from '../src/effects/core';
 import { EffectContext, LyricEffectContext } from '../src/effects/core/Effect';
+import { BeatDetector, BeatData } from '../services/beatDetectionService';
 
 interface VisualizerProps {
   audioUrl: string | null;
@@ -202,6 +203,20 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
     const lyricComposerRef = useRef<EffectComposer | null>(null);
     const backgroundComposerRef = useRef<EffectComposer | null>(null);
 
+    // Beat detection ref
+    const beatDetectorRef = useRef<BeatDetector>(new BeatDetector());
+    const beatDataRef = useRef<BeatData>({
+      isBeat: false,
+      beatIntensity: 0,
+      timeSinceBeat: Infinity, // Infinity = no beat detected yet
+      bpm: 120,
+      beatPhase: 0,
+      energy: 0,
+      energyDelta: 0,
+      spectralCentroid: 0,
+      spectralFlux: 0,
+    });
+
     const [isBgLoading, setIsBgLoading] = useState(false);
 
     // Interaction State
@@ -295,6 +310,9 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
           audioRef.current.pause();
           audioRef.current.src = '';
         }
+
+        // Reset beat detector for new track
+        beatDetectorRef.current.reset();
 
         const audio = new Audio(audioUrl);
         audio.crossOrigin = 'anonymous';
@@ -546,6 +564,10 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
 
         const trebleSlice = dataArrayRef.current.slice(100, 255);
         trebleFreq = trebleSlice.reduce((a, b) => a + b, 0) / trebleSlice.length;
+
+        // Beat detection analysis
+        const audioTime = audioRef.current?.currentTime || 0;
+        beatDataRef.current = beatDetectorRef.current.analyze(dataArrayRef.current, audioTime);
       }
 
       const getFreqValue = (band: FrequencyBand): number => {
@@ -556,6 +578,15 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
             return midFreq;
           case 'treble':
             return trebleFreq;
+          case 'beat':
+            // Return 255 on beat, decay exponentially
+            // Handle Infinity (no beat detected yet) by returning 0
+            if (beatDataRef.current.isBeat) return 255;
+            if (!isFinite(beatDataRef.current.timeSinceBeat)) return 0;
+            return Math.max(0, 255 * Math.exp(-beatDataRef.current.timeSinceBeat * 8));
+          case 'energy':
+            return beatDataRef.current.energy * 255;
+          case 'avg':
           default:
             return averageFreq;
         }
@@ -870,6 +901,8 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
             treble: trebleFreq,
             average: averageFreq,
             raw: dataArrayRef.current || new Uint8Array(128),
+            // Beat detection data
+            ...beatDataRef.current,
           },
           settings,
           palette: effectivePalette,
@@ -1026,6 +1059,8 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
               treble: trebleFreq,
               average: averageFreq,
               raw: dataArrayRef.current || new Uint8Array(128),
+              // Beat detection data
+              ...beatDataRef.current,
             },
             settings,
             palette: paletteForLine,
