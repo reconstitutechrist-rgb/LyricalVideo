@@ -13,6 +13,8 @@ import {
   FrequencyBand,
   Genre,
   EffectInstanceConfig,
+  WordTiming,
+  SyllableTiming,
 } from '../../../types';
 
 /**
@@ -457,6 +459,56 @@ export const LyricalFlowWrapper: React.FC<LyricalFlowWrapperProps> = ({
     [setState]
   );
 
+  // Word/Syllable Timing Handlers
+  const handleUpdateWordTiming = useCallback(
+    (lyricIndex: number, wordIndex: number, updates: Partial<WordTiming>) => {
+      setState((prev) => {
+        const newLyrics = [...prev.lyrics];
+        if (newLyrics[lyricIndex]?.words?.[wordIndex]) {
+          newLyrics[lyricIndex] = {
+            ...newLyrics[lyricIndex],
+            words: newLyrics[lyricIndex].words!.map((w, i) =>
+              i === wordIndex ? { ...w, ...updates } : w
+            ),
+          };
+        }
+        return { ...prev, lyrics: newLyrics };
+      });
+    },
+    [setState]
+  );
+
+  const handleUpdateSyllableTiming = useCallback(
+    (
+      lyricIndex: number,
+      wordIndex: number,
+      syllableIndex: number,
+      updates: Partial<SyllableTiming>
+    ) => {
+      setState((prev) => {
+        const newLyrics = [...prev.lyrics];
+        const word = newLyrics[lyricIndex]?.words?.[wordIndex];
+        if (word?.syllables?.[syllableIndex]) {
+          newLyrics[lyricIndex] = {
+            ...newLyrics[lyricIndex],
+            words: newLyrics[lyricIndex].words!.map((w, wi) =>
+              wi === wordIndex
+                ? {
+                    ...w,
+                    syllables: w.syllables!.map((s, si) =>
+                      si === syllableIndex ? { ...s, ...updates } : s
+                    ),
+                  }
+                : w
+            ),
+          };
+        }
+        return { ...prev, lyrics: newLyrics };
+      });
+    },
+    [setState]
+  );
+
   const handleGenreOverride = useCallback(
     (genre: string | null) => {
       setState((prev) => ({
@@ -696,6 +748,10 @@ export const LyricalFlowWrapper: React.FC<LyricalFlowWrapperProps> = ({
       // Edit Mode
       editMode={editMode}
       selectedLyricIndices={selectedLyricIndices}
+      // Sync-related
+      syncPrecision={state.syncPrecision}
+      onUpdateWordTiming={handleUpdateWordTiming}
+      onUpdateSyllableTiming={handleUpdateSyllableTiming}
       // Chat
       chatOpen={chatOpen}
       chatMessages={chatMessages}

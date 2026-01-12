@@ -1,3 +1,60 @@
+// =============================================================================
+// LYRIC SYNC TYPES - Multi-precision timing system
+// =============================================================================
+
+/**
+ * Timing precision levels for lyric synchronization
+ */
+export type TimingPrecision = 'line' | 'word' | 'syllable';
+
+/**
+ * Syllable-level timing for precise karaoke-style sync
+ */
+export interface SyllableTiming {
+  id: string;
+  text: string;
+  startTime: number;
+  endTime: number;
+  phoneme?: string; // Optional IPA phoneme representation
+}
+
+/**
+ * Word-level timing with optional syllable breakdown
+ */
+export interface WordTiming {
+  id: string;
+  text: string;
+  startTime: number;
+  endTime: number;
+  syllables?: SyllableTiming[]; // Present when syllable-level sync is used
+  confidence?: number; // AI confidence 0-1
+}
+
+/**
+ * Configuration for AI sync operation
+ */
+export interface SyncConfig {
+  precision: TimingPrecision;
+  userLyrics?: string;
+  language?: string; // For phonetic analysis
+  alignToBeats?: boolean; // Snap to detected beats
+}
+
+/**
+ * Result from AI synchronization
+ */
+export interface SyncResult {
+  lyrics: LyricLine[];
+  metadata: SongMetadata;
+  precision: TimingPrecision;
+  overallConfidence: number;
+  processingTimeMs?: number;
+}
+
+// =============================================================================
+// LYRIC LINE - Core lyric structure
+// =============================================================================
+
 export interface LyricLine {
   id: string;
   text: string;
@@ -8,6 +65,10 @@ export interface LyricLine {
   section?: string; // e.g., "Verse 1", "Chorus"
   sentimentColor?: string; // Hex code e.g., "#FF0000"
   keyframes?: TextKeyframe[];
+  // Word/syllable timing (when precision > line)
+  words?: WordTiming[];
+  syncPrecision?: TimingPrecision;
+  syncConfidence?: number; // AI confidence for this line
 }
 
 export type EasingType =
@@ -168,6 +229,11 @@ export interface AppState {
   backgroundEffects: EffectInstanceConfig[];
   detectedGenre: Genre | null;
   genreOverride: Genre | null;
+  // Lyric sync state
+  syncPrecision: TimingPrecision;
+  isSyncing: boolean;
+  syncProgress: number; // 0-100
+  lastSyncConfidence: number | null;
 }
 
 /**

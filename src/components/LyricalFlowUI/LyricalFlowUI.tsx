@@ -1,4 +1,4 @@
-import React, { useRef, useCallback, useState } from 'react';
+import React, { useRef, useCallback, useState, useEffect } from 'react';
 import {
   ArrowUpTrayIcon,
   PlayIcon,
@@ -28,7 +28,11 @@ import {
   FontFamily,
   FrequencyBand,
   EffectInstanceConfig,
+  TimingPrecision,
+  WordTiming,
+  SyllableTiming,
 } from '../../../types';
+import { WordTimingEditor } from '../LyricEditor/WordTimingEditor';
 import { CollapsibleSection } from './CollapsibleSection';
 import { FontUploader } from '../FontUploader';
 
@@ -76,6 +80,16 @@ export interface LyricalFlowUIProps {
   // Edit Mode
   editMode: boolean;
   selectedLyricIndices: Set<number>;
+
+  // Sync-related props
+  syncPrecision: TimingPrecision;
+  onUpdateWordTiming: (lyricIndex: number, wordIndex: number, updates: Partial<WordTiming>) => void;
+  onUpdateSyllableTiming?: (
+    lyricIndex: number,
+    wordIndex: number,
+    syllableIndex: number,
+    updates: Partial<SyllableTiming>
+  ) => void;
 
   // Chat
   chatOpen: boolean;
@@ -253,6 +267,74 @@ const ToggleSwitch: React.FC<{
     </button>
   </div>
 );
+
+// ============================================
+// Draggable Time Input
+// ============================================
+
+interface DraggableTimeInputProps {
+  value: number;
+  onChange: (value: number) => void;
+  step?: number;
+  min?: number;
+  max?: number;
+  label: string;
+}
+
+const DraggableTimeInput: React.FC<DraggableTimeInputProps> = ({
+  value,
+  onChange,
+  step = 0.01,
+  min = 0,
+  max = Infinity,
+  label,
+}) => {
+  const [isDragging, setIsDragging] = useState(false);
+  const [startX, setStartX] = useState(0);
+  const [startValue, setStartValue] = useState(0);
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+    setStartX(e.clientX);
+    setStartValue(value);
+  };
+
+  useEffect(() => {
+    if (!isDragging) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const deltaX = e.clientX - startX;
+      const sensitivity = e.shiftKey ? 0.001 : 0.01; // Fine-tune with Shift
+      const newValue = Math.max(min, Math.min(max, startValue + deltaX * sensitivity));
+      onChange(Number(newValue.toFixed(3)));
+    };
+
+    const handleMouseUp = () => setIsDragging(false);
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging, startX, startValue, min, max, onChange]);
+
+  return (
+    <input
+      type="number"
+      value={value.toFixed(2)}
+      onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
+      onMouseDown={handleMouseDown}
+      className={`time-input w-14 py-0.5 px-1 rounded text-[9px] text-center ${
+        isDragging ? 'cursor-ew-resize bg-cyan-500/20' : 'cursor-ew-resize'
+      }`}
+      step={step}
+      aria-label={label}
+      title="Drag horizontally to adjust (hold Shift for fine control)"
+    />
+  );
+};
 
 // ============================================
 // Visual Style Options
@@ -441,6 +523,10 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
   // Edit Mode
   editMode,
   selectedLyricIndices,
+  // Sync-related
+  syncPrecision,
+  onUpdateWordTiming,
+  onUpdateSyllableTiming,
   // Chat
   chatOpen,
   chatMessages,
@@ -538,6 +624,53 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
       onChatSubmit();
     }
   };
+
+  // Keyboard shortcuts for time nudging
+  const handleGlobalKeyDown = useCallback(
+    (e: KeyboardEvent) => {
+      // Only handle shortcuts in edit mode with a selection
+      if (!editMode || selectedLyricIndices.size === 0) return;
+
+      // Don't handle if typing in an input
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
+      const nudgeAmount = 0.1; // seconds
+      const indices: number[] = Array.from(selectedLyricIndices);
+
+      switch (e.key) {
+        case '[': // Nudge start time earlier
+          e.preventDefault();
+          indices.forEach((i) =>
+            onUpdateLyricTime(i, 'startTime', lyrics[i].startTime - nudgeAmount)
+          );
+          break;
+        case ']': // Nudge start time later
+          e.preventDefault();
+          indices.forEach((i) =>
+            onUpdateLyricTime(i, 'startTime', lyrics[i].startTime + nudgeAmount)
+          );
+          break;
+        case '{': // Nudge end time earlier (Shift+[)
+          e.preventDefault();
+          indices.forEach((i) => onUpdateLyricTime(i, 'endTime', lyrics[i].endTime - nudgeAmount));
+          break;
+        case '}': // Nudge end time later (Shift+])
+          e.preventDefault();
+          indices.forEach((i) => onUpdateLyricTime(i, 'endTime', lyrics[i].endTime + nudgeAmount));
+          break;
+        case ' ': // Space to toggle play/pause
+          e.preventDefault();
+          onTogglePlay();
+          break;
+      }
+    },
+    [editMode, selectedLyricIndices, lyrics, onUpdateLyricTime, onTogglePlay]
+  );
+
+  useEffect(() => {
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [handleGlobalKeyDown]);
 
   // Progress percentage
   const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
@@ -1319,27 +1452,19 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
                             className="glass-checkbox w-3 h-3 rounded"
                             aria-label={`Select lyric ${i + 1}`}
                           />
-                          {/* Time Inputs */}
-                          <input
-                            type="number"
-                            value={lyric.startTime.toFixed(2)}
-                            onChange={(e) =>
-                              onUpdateLyricTime(i, 'startTime', parseFloat(e.target.value) || 0)
-                            }
-                            className="time-input w-14 py-0.5 px-1 rounded text-[9px] text-center"
-                            step="0.01"
-                            aria-label="Start time"
+                          {/* Time Inputs - Draggable */}
+                          <DraggableTimeInput
+                            value={lyric.startTime}
+                            onChange={(val) => onUpdateLyricTime(i, 'startTime', val)}
+                            max={lyric.endTime - 0.1}
+                            label="Start time"
                           />
                           <span className="text-[9px] text-slate-500">→</span>
-                          <input
-                            type="number"
-                            value={lyric.endTime.toFixed(2)}
-                            onChange={(e) =>
-                              onUpdateLyricTime(i, 'endTime', parseFloat(e.target.value) || 0)
-                            }
-                            className="time-input w-14 py-0.5 px-1 rounded text-[9px] text-center"
-                            step="0.01"
-                            aria-label="End time"
+                          <DraggableTimeInput
+                            value={lyric.endTime}
+                            onChange={(val) => onUpdateLyricTime(i, 'endTime', val)}
+                            min={lyric.startTime + 0.1}
+                            label="End time"
                           />
                           {/* Section Dropdown */}
                           <select
@@ -1402,6 +1527,26 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
                           style={{ width: 'calc(100% - 1.25rem)' }}
                           aria-label="Lyric text"
                         />
+                        {/* Row 4: Word Timing Chips (when word/syllable precision) */}
+                        {syncPrecision !== 'line' && lyric.words && lyric.words.length > 0 && (
+                          <div className="pl-5 mt-1.5">
+                            <WordTimingEditor
+                              words={lyric.words}
+                              lineStartTime={lyric.startTime}
+                              lineEndTime={lyric.endTime}
+                              precision={syncPrecision}
+                              onWordUpdate={(wordIndex, updates) =>
+                                onUpdateWordTiming(i, wordIndex, updates)
+                              }
+                              onSyllableUpdate={
+                                onUpdateSyllableTiming
+                                  ? (wordIndex, syllableIndex, updates) =>
+                                      onUpdateSyllableTiming(i, wordIndex, syllableIndex, updates)
+                                  : undefined
+                              }
+                            />
+                          </div>
+                        )}
                       </div>
                     ) : (
                       /* View Mode */

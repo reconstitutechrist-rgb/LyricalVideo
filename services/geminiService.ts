@@ -15,6 +15,12 @@ import {
   VideoPlanEffect,
   VisualStyle,
   GeneratedAsset,
+  // Sync types
+  TimingPrecision,
+  SyncConfig,
+  SyncResult,
+  WordTiming,
+  SyllableTiming,
 } from '../types';
 
 // Helper to base64 encode
@@ -158,6 +164,213 @@ export const analyzeAudioAndGetLyrics = async (
 
   return { lyrics, metadata };
 };
+
+// 1b. Sync Lyrics with Precision (Line/Word/Syllable level timing)
+export const syncLyricsWithPrecision = async (
+  audioFile: File,
+  config: SyncConfig,
+  onProgress?: (percent: number) => void
+): Promise<SyncResult> => {
+  const startTime = Date.now();
+  const ai = await getAI();
+  const base64Audio = await fileToBase64(audioFile);
+
+  onProgress?.(10);
+
+  const precisionInstructions: Record<TimingPrecision, string> = {
+    line: 'Provide start/end timestamps for each LINE of lyrics.',
+    word: `Provide timestamps for EACH WORD within each line. For each lyric line, include a "words" array where each word has: { text, startTime, endTime, confidence }. The confidence should be 0-1 based on how clearly the word is heard.`,
+    syllable: `Provide timestamps for each SYLLABLE of every word. For each lyric line, include a "words" array. Each word should have a "syllables" array with: { text, startTime, endTime, phoneme }. The phoneme is the IPA representation (optional).`,
+  };
+
+  const promptText = `
+    Analyze this audio and synchronize lyrics with PRECISE timing.
+
+    PRECISION LEVEL: ${config.precision.toUpperCase()}
+    ${precisionInstructions[config.precision]}
+
+    ${
+      config.userLyrics
+        ? `
+    CRITICAL: The user has provided the official lyrics below.
+    Do NOT transcribe from scratch. Instead, ALIGN the provided text to the audio timestamps.
+    Ensure every line from the provided text is accounted for.
+
+    PROVIDED LYRICS:
+    """
+    ${config.userLyrics}
+    """
+    `
+        : 'Transcribe the lyrics exactly as heard from the audio.'
+    }
+
+    Return timestamps in seconds with 3 decimal precision (e.g., 1.234).
+    Include confidence scores (0-1) based on audio clarity.
+    Detect the song structure (Verse, Chorus, Bridge) for each line.
+    Assign a sentimentColor (hex code) matching each line's emotional tone.
+  `;
+
+  // Build schema based on precision level
+  const responseSchema = buildPrecisionSchema(config.precision);
+
+  onProgress?.(30);
+
+  const response = await ai.models.generateContent({
+    model: 'gemini-3-flash-preview',
+    contents: {
+      parts: [
+        { inlineData: { mimeType: audioFile.type, data: base64Audio } },
+        { text: promptText },
+      ],
+    },
+    config: {
+      responseMimeType: 'application/json',
+      responseSchema: responseSchema,
+    },
+  });
+
+  onProgress?.(90);
+
+  const json = JSON.parse(response.text || '{}');
+  const processingTimeMs = Date.now() - startTime;
+
+  // Parse and normalize the result
+  const lyrics: LyricLine[] =
+    json.lyrics?.map((l: any, i: number) => {
+      const line: LyricLine = {
+        id: `line-${i}`,
+        text: l.text,
+        startTime: l.startTime,
+        endTime: l.endTime,
+        section: l.section,
+        sentimentColor: l.sentimentColor,
+        syncPrecision: config.precision,
+        syncConfidence: l.confidence,
+      };
+
+      // Add word-level timing if available
+      if (l.words && config.precision !== 'line') {
+        line.words = l.words.map((w: any, wi: number) => {
+          const word: WordTiming = {
+            id: `word-${i}-${wi}`,
+            text: w.text,
+            startTime: w.startTime,
+            endTime: w.endTime,
+            confidence: w.confidence,
+          };
+
+          // Add syllable-level timing if available
+          if (w.syllables && config.precision === 'syllable') {
+            word.syllables = w.syllables.map((s: any, si: number) => ({
+              id: `syl-${i}-${wi}-${si}`,
+              text: s.text,
+              startTime: s.startTime,
+              endTime: s.endTime,
+              phoneme: s.phoneme,
+            }));
+          }
+
+          return word;
+        });
+      }
+
+      return line;
+    }) || [];
+
+  const metadata: SongMetadata = json.metadata || {
+    title: 'Unknown',
+    artist: 'Unknown',
+    genre: 'Unknown',
+    mood: 'Neutral',
+  };
+
+  // Calculate overall confidence
+  const confidences = lyrics.map((l) => l.syncConfidence || 0).filter((c) => c > 0);
+  const overallConfidence =
+    confidences.length > 0 ? confidences.reduce((a, b) => a + b, 0) / confidences.length : 0;
+
+  onProgress?.(100);
+
+  return {
+    lyrics,
+    metadata,
+    precision: config.precision,
+    overallConfidence,
+    processingTimeMs,
+  };
+};
+
+// Helper to build schema based on precision level
+function buildPrecisionSchema(precision: TimingPrecision): Schema {
+  // Base word schema
+  const syllableSchema: Schema = {
+    type: Type.OBJECT,
+    properties: {
+      text: { type: Type.STRING },
+      startTime: { type: Type.NUMBER },
+      endTime: { type: Type.NUMBER },
+      phoneme: { type: Type.STRING, description: 'IPA phoneme (optional)' },
+    },
+  };
+
+  const wordSchema: Schema = {
+    type: Type.OBJECT,
+    properties: {
+      text: { type: Type.STRING },
+      startTime: { type: Type.NUMBER },
+      endTime: { type: Type.NUMBER },
+      confidence: { type: Type.NUMBER, description: 'Confidence 0-1' },
+      ...(precision === 'syllable'
+        ? {
+            syllables: {
+              type: Type.ARRAY,
+              items: syllableSchema,
+            },
+          }
+        : {}),
+    },
+  };
+
+  // Lyric line schema varies by precision
+  const lyricLineSchema: Schema = {
+    type: Type.OBJECT,
+    properties: {
+      text: { type: Type.STRING },
+      startTime: { type: Type.NUMBER },
+      endTime: { type: Type.NUMBER },
+      section: { type: Type.STRING, description: 'e.g., Verse 1, Chorus, Bridge' },
+      sentimentColor: { type: Type.STRING, description: 'Hex color matching emotion' },
+      confidence: { type: Type.NUMBER, description: 'Line-level confidence 0-1' },
+      ...(precision !== 'line'
+        ? {
+            words: {
+              type: Type.ARRAY,
+              items: wordSchema,
+            },
+          }
+        : {}),
+    },
+  };
+
+  return {
+    type: Type.OBJECT,
+    properties: {
+      metadata: {
+        type: Type.OBJECT,
+        properties: {
+          title: { type: Type.STRING },
+          artist: { type: Type.STRING },
+          genre: { type: Type.STRING },
+          mood: { type: Type.STRING },
+        },
+      },
+      lyrics: {
+        type: Type.ARRAY,
+        items: lyricLineSchema,
+      },
+    },
+  };
+}
 
 // 2. Chat with AI (Contextual)
 export const sendChatMessage = async (

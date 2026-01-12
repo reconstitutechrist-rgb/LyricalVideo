@@ -37,6 +37,7 @@ import {
   analyzeImage,
   detectMusicGenre,
   modifyVideoPlan,
+  syncLyricsWithPrecision,
 } from './services/geminiService';
 import * as aiOrchestrator from './services/aiOrchestrator';
 import { initializeEffects } from './src/effects';
@@ -45,6 +46,8 @@ import { VideoPlanPanel } from './src/components/VideoPlanPanel';
 import { LyricalFlowWrapper } from './src/components/LyricalFlowUI';
 import { ExportSettingsPanel } from './src/components/ExportSettingsPanel';
 import { Timeline } from './src/components/Timeline';
+import { SyncPanel } from './src/components/SyncPanel';
+import { WaveformEditor } from './src/components/WaveformEditor';
 import {
   AppState,
   LyricLine,
@@ -63,6 +66,7 @@ import {
   ExportSettings,
   ExportProgress,
   DEFAULT_EXPORT_SETTINGS,
+  TimingPrecision,
 } from './types';
 import type {
   VideoPlan,
@@ -197,6 +201,11 @@ const App = () => {
     backgroundEffects: [],
     detectedGenre: null,
     genreOverride: null,
+    // Lyric sync state
+    syncPrecision: 'word' as TimingPrecision,
+    isSyncing: false,
+    syncProgress: 0,
+    lastSyncConfidence: null,
   });
 
   // State for genre detection status
@@ -220,6 +229,8 @@ const App = () => {
   const [showExportSettings, setShowExportSettings] = useState(false);
   const [showTimeline, setShowTimeline] = useState(false);
   const [selectedTimelineLyricIndex, setSelectedTimelineLyricIndex] = useState<number | null>(null);
+  const [showWaveformEditor, setShowWaveformEditor] = useState(false);
+  const [selectedWaveformLyricIndex, setSelectedWaveformLyricIndex] = useState<number | null>(null);
 
   // Initialize effects system on mount
   useEffect(() => {
@@ -1005,6 +1016,65 @@ const App = () => {
     }
   };
 
+  // Handle lyric sync with precision
+  const handleLyricSync = async () => {
+    if (!state.audioFile) {
+      setChatMessages((prev) => [
+        ...prev,
+        { role: 'model', text: 'Please upload an audio file first.', timestamp: new Date() },
+      ]);
+      return;
+    }
+
+    setState((prev) => ({ ...prev, isSyncing: true, syncProgress: 0 }));
+
+    try {
+      const result = await syncLyricsWithPrecision(
+        state.audioFile,
+        {
+          precision: state.syncPrecision,
+          userLyrics: state.userProvidedLyrics || undefined,
+        },
+        (progress) => {
+          setState((prev) => ({ ...prev, syncProgress: progress }));
+        }
+      );
+
+      setState((prev) => ({
+        ...prev,
+        lyrics: result.lyrics,
+        metadata: result.metadata,
+        lastSyncConfidence: result.overallConfidence,
+        isSyncing: false,
+        syncProgress: 100,
+      }));
+
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          role: 'model',
+          text: `Lyrics synced with ${state.syncPrecision}-level precision! Confidence: ${Math.round(result.overallConfidence * 100)}%. ${result.processingTimeMs ? `(${(result.processingTimeMs / 1000).toFixed(1)}s)` : ''}`,
+          timestamp: new Date(),
+        },
+      ]);
+    } catch (err) {
+      console.error('Sync failed:', err);
+      setState((prev) => ({ ...prev, isSyncing: false, syncProgress: 0 }));
+      setChatMessages((prev) => [
+        ...prev,
+        { role: 'model', text: 'Failed to sync lyrics. Please try again.', timestamp: new Date() },
+      ]);
+    }
+  };
+
+  // Handle lyric update from WaveformEditor
+  const handleLyricUpdate = (index: number, updates: Partial<LyricLine>) => {
+    setState((prev) => ({
+      ...prev,
+      lyrics: prev.lyrics.map((l, i) => (i === index ? { ...l, ...updates } : l)),
+    }));
+  };
+
   // --- Video Plan Handlers ---
 
   const handleRegeneratePlan = async () => {
@@ -1584,6 +1654,23 @@ const App = () => {
               </label>
             </div>
           </div>
+
+          {/* LYRIC SYNC - Show when audio is uploaded */}
+          {state.audioFile && (
+            <SyncPanel
+              precision={state.syncPrecision}
+              onPrecisionChange={(p) => setState((prev) => ({ ...prev, syncPrecision: p }))}
+              userLyrics={state.userProvidedLyrics}
+              onLyricsChange={(lyrics) =>
+                setState((prev) => ({ ...prev, userProvidedLyrics: lyrics }))
+              }
+              onSync={handleLyricSync}
+              isSyncing={state.isSyncing}
+              syncProgress={state.syncProgress}
+              lastSyncConfidence={state.lastSyncConfidence}
+              disabled={!state.audioFile}
+            />
+          )}
 
           {/* 2. VISUAL DIRECTION */}
           <div className="space-y-3">
@@ -2552,7 +2639,21 @@ const App = () => {
             </div>
           )}
 
-          {/* Chat Toggle */}
+          {/* Waveform Editor Toggle */}
+          {state.audioBuffer && (
+            <button
+              onClick={() => setShowWaveformEditor(!showWaveformEditor)}
+              className={`absolute top-6 right-36 p-3 bg-slate-900/80 backdrop-blur border rounded-full transition-colors z-20 ${
+                showWaveformEditor
+                  ? 'border-purple-500/50 text-purple-400'
+                  : 'border-white/10 text-white hover:bg-white/10'
+              }`}
+              title={showWaveformEditor ? 'Hide Waveform Editor' : 'Show Waveform Editor'}
+            >
+              <SpeakerWaveIcon className="w-6 h-6" />
+            </button>
+          )}
+
           {/* Timeline Toggle */}
           <button
             onClick={() => setShowTimeline(!showTimeline)}
@@ -2609,6 +2710,28 @@ const App = () => {
             selectedLyricIndex={selectedTimelineLyricIndex}
             onSelectLyric={setSelectedTimelineLyricIndex}
           />
+        )}
+
+        {/* Waveform Editor */}
+        {showWaveformEditor && state.audioBuffer && (
+          <div className="absolute bottom-0 left-0 right-0 z-20 bg-slate-900/95 backdrop-blur border-t border-white/10">
+            <WaveformEditor
+              audioBuffer={state.audioBuffer}
+              duration={audioElementRef.current?.duration || 0}
+              currentTime={state.currentTime}
+              onSeek={(t) => {
+                if (audioElementRef.current) audioElementRef.current.currentTime = t;
+                setState((prev) => ({ ...prev, currentTime: t }));
+              }}
+              lyrics={state.lyrics}
+              onLyricUpdate={handleLyricUpdate}
+              syncPrecision={state.syncPrecision}
+              isPlaying={state.isPlaying}
+              onPlayPause={togglePlay}
+              selectedLyricIndex={selectedWaveformLyricIndex}
+              onSelectLyric={setSelectedWaveformLyricIndex}
+            />
+          </div>
         )}
 
         {/* CHAT PANEL */}

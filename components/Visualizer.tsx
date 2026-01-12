@@ -11,6 +11,7 @@ import {
   EffectInstanceConfig,
   Genre,
   ExportResolution,
+  WordTiming,
 } from '../types';
 import { EffectRegistry, EffectComposer } from '../src/effects/core';
 import { EffectContext, LyricEffectContext } from '../src/effects/core/Effect';
@@ -420,6 +421,88 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
         backgroundComposerRef.current?.clear();
       }
     }, [backgroundEffects]);
+
+    // Karaoke-style word highlighting renderer
+    const renderKaraokeText = (
+      ctx: CanvasRenderingContext2D,
+      line: LyricLine,
+      time: number,
+      textColor: string,
+      highlightColor: string,
+      _fontSize: number // Prefixed with _ to indicate intentionally unused
+    ) => {
+      if (!line.words || line.words.length === 0) {
+        ctx.fillStyle = textColor;
+        ctx.fillText(line.text, 0, 0);
+        return;
+      }
+
+      // Build full text with spaces for width calculation
+      const wordsWithSpaces = line.words.map((w, i) =>
+        i < line.words!.length - 1 ? w.text + ' ' : w.text
+      );
+      const fullText = wordsWithSpaces.join('');
+      const totalWidth = ctx.measureText(fullText).width;
+
+      // Start position (centered)
+      let xPos = -totalWidth / 2;
+
+      // Define colors for different states
+      const pastColor = highlightColor; // Already sung words
+      const activeColor = '#00ffff'; // Currently singing word (cyan glow)
+      const futureColor = textColor; // Not yet sung
+
+      // Save text alignment since we'll draw left-aligned
+      ctx.save();
+      ctx.textAlign = 'left';
+
+      line.words.forEach((word: WordTiming, idx: number) => {
+        const isActive = time >= word.startTime && time < word.endTime;
+        const isPast = time >= word.endTime;
+        const wordText = idx < line.words!.length - 1 ? word.text + ' ' : word.text;
+        const wordWidth = ctx.measureText(wordText).width;
+
+        // Set fill style based on state
+        if (isPast) {
+          ctx.fillStyle = pastColor;
+          ctx.shadowColor = pastColor;
+          ctx.shadowBlur = 8;
+          ctx.fillText(wordText, xPos, 0);
+        } else if (isActive) {
+          // Calculate progress through the word for gradient effect
+          const wordDuration = word.endTime - word.startTime;
+          const wordProgress =
+            wordDuration > 0 ? Math.min(1, (time - word.startTime) / wordDuration) : 0;
+
+          // Active word gets a pulsing glow effect
+          ctx.fillStyle = activeColor;
+          ctx.shadowColor = activeColor;
+          ctx.shadowBlur = 15 + Math.sin(time * 10) * 5; // Pulsing glow
+
+          // Scale active word slightly from its center
+          ctx.save();
+          const scale = 1 + wordProgress * 0.08;
+          const wordCenterX = xPos + wordWidth / 2;
+          ctx.translate(wordCenterX, 0);
+          ctx.scale(scale, scale);
+          ctx.translate(-wordCenterX, 0);
+          ctx.fillText(wordText, xPos, 0);
+          ctx.restore();
+        } else {
+          ctx.fillStyle = futureColor;
+          ctx.shadowColor = 'transparent';
+          ctx.shadowBlur = 0;
+          ctx.fillText(wordText, xPos, 0);
+        }
+
+        // Move to next word position
+        xPos += wordWidth;
+      });
+
+      // Restore original state
+      ctx.restore();
+      ctx.shadowBlur = 0;
+    };
 
     const draw = () => {
       const canvas = canvasRef.current;
@@ -960,14 +1043,21 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
           lyricComposerRef.current!.renderLyric(lyricContext);
         } else {
           // Standard Text Rendering (fallback when no effects)
-          ctx.fillStyle = textColor;
           ctx.shadowColor = glowColor;
           ctx.shadowBlur =
             styleForLine === VisualStyle.CINEMATIC_BACKDROP
               ? 20 * settings.intensity
               : 15 * settings.intensity;
 
-          ctx.fillText(line.text, 0, 0);
+          // Check if we have word-level timing for karaoke mode
+          if (line.words && line.words.length > 0) {
+            // Karaoke-style word-by-word highlighting
+            renderKaraokeText(ctx, line, currentTime, textColor, glowColor, fontSize);
+          } else {
+            // Simple single-line rendering
+            ctx.fillStyle = textColor;
+            ctx.fillText(line.text, 0, 0);
+          }
         }
 
         ctx.restore();
