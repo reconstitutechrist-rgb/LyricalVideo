@@ -10,11 +10,23 @@ export * from './LyricEffect';
 // Character-level effects
 export * from './character';
 
-// 3D transform effects
+// 3D transform effects (Canvas 2D simulated)
 export * from './transform3d';
 
 // Physics-based effects
 export * from './physics';
+
+// WebGL 3D effects (true 3D with Three.js)
+export * from './webgl3d';
+
+// Mask effects
+export * from './mask';
+
+// Path effects
+export * from './path';
+
+// Blur effects
+export * from './blur';
 
 // Import all effects for registration
 import { WaveEffect } from './character/Wave';
@@ -32,6 +44,24 @@ import { WindDissolveEffect } from './physics/WindDissolve';
 import { GravityFallEffect } from './physics/GravityFall';
 import { ExplodeEffect } from './physics/Explode';
 import { ParticleBurstEffect } from './physics/ParticleBurst';
+
+// WebGL 3D effects
+import { PerspectiveRotate3DEffect } from './webgl3d/PerspectiveRotate3D';
+import { Extrude3DEffect } from './webgl3d/Extrude3D';
+import { Orbit3DEffect } from './webgl3d/Orbit3D';
+import { Wave3DEffect } from './webgl3d/Wave3D';
+import { Explode3DEffect } from './webgl3d/Explode3D';
+
+// Mask effects
+import { CircleMaskEffect } from './mask/CircleMask';
+import { RectangleMaskEffect } from './mask/RectangleMask';
+import { ShapeMaskEffect } from './mask/ShapeMask';
+
+// Path effects
+import { TextPathEffect } from './path/TextPath';
+
+// Blur effects
+import { MotionBlurEffect } from './blur/MotionBlur';
 
 /**
  * Register all lyric effects with the registry
@@ -103,5 +133,59 @@ export function registerLyricEffects(): void {
   EffectRegistry.register(ParticleBurstEffect, {
     description: 'Particles burst from text on appearance',
     tags: ['physics', 'particles', 'burst', 'entrance'],
+  });
+
+  // WebGL 3D effects (true 3D with Three.js)
+  EffectRegistry.register(PerspectiveRotate3DEffect, {
+    description: 'True 3D rotation with WebGL perspective',
+    tags: ['webgl', '3d', 'rotation', 'perspective'],
+  });
+
+  EffectRegistry.register(Extrude3DEffect, {
+    description: '3D extruded text with depth',
+    tags: ['webgl', '3d', 'extrude', 'depth'],
+  });
+
+  EffectRegistry.register(Orbit3DEffect, {
+    description: 'Characters orbit in true 3D space',
+    tags: ['webgl', '3d', 'orbit', 'motion'],
+  });
+
+  EffectRegistry.register(Wave3DEffect, {
+    description: 'Sine wave in Z-space (depth)',
+    tags: ['webgl', '3d', 'wave', 'depth'],
+  });
+
+  EffectRegistry.register(Explode3DEffect, {
+    description: 'Characters explode in true 3D',
+    tags: ['webgl', '3d', 'explode', 'physics'],
+  });
+
+  // Mask effects
+  EffectRegistry.register(CircleMaskEffect, {
+    description: 'Text revealed through animated circular mask',
+    tags: ['mask', 'circle', 'reveal', 'clip'],
+  });
+
+  EffectRegistry.register(RectangleMaskEffect, {
+    description: 'Text revealed through animated rectangular mask',
+    tags: ['mask', 'rectangle', 'wipe', 'reveal'],
+  });
+
+  EffectRegistry.register(ShapeMaskEffect, {
+    description: 'Text revealed through shape masks (heart, star, polygon)',
+    tags: ['mask', 'shape', 'heart', 'star', 'polygon'],
+  });
+
+  // Path effects
+  EffectRegistry.register(TextPathEffect, {
+    description: 'Text follows and animates along bezier curve paths',
+    tags: ['path', 'bezier', 'curve', 'motion'],
+  });
+
+  // Blur effects
+  EffectRegistry.register(MotionBlurEffect, {
+    description: 'Per-character motion blur based on velocity',
+    tags: ['blur', 'motion', 'velocity', 'trail'],
   });
 }

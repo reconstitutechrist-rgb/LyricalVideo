@@ -10,6 +10,7 @@ import {
   EasingType,
   EffectInstanceConfig,
   Genre,
+  ExportResolution,
 } from '../types';
 import { EffectRegistry, EffectComposer } from '../src/effects/core';
 import { EffectContext, LyricEffectContext } from '../src/effects/core/Effect';
@@ -35,6 +36,8 @@ interface VisualizerProps {
   lyricEffects?: EffectInstanceConfig[];
   backgroundEffects?: EffectInstanceConfig[];
   activeGenre?: Genre | null;
+  // Export quality settings
+  exportResolution?: ExportResolution;
 }
 
 // Particle Class
@@ -179,6 +182,7 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
       lyricEffects = [],
       backgroundEffects = [],
       activeGenre: _activeGenre,
+      exportResolution = '1080p' as ExportResolution,
     },
     ref
   ) => {
@@ -214,10 +218,23 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
 
     useImperativeHandle(ref, () => canvasRef.current!);
 
+    const getBaseHeight = (resolution: ExportResolution): number => {
+      switch (resolution) {
+        case '720p':
+          return 720;
+        case '1080p':
+          return 1080;
+        case '4K':
+          return 2160;
+        default:
+          return 1080;
+      }
+    };
+
     const getDimensions = () => {
       const [w, h] = aspectRatio.split(':').map(Number);
-      const baseHeight = 720;
-      const calculatedWidth = (baseHeight * w) / h;
+      const baseHeight = getBaseHeight(exportResolution);
+      const calculatedWidth = Math.round((baseHeight * w) / h);
       return { width: calculatedWidth, height: baseHeight };
     };
     const { width, height } = getDimensions();

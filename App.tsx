@@ -43,6 +43,8 @@ import { initializeEffects } from './src/effects';
 import { EffectPanel } from './src/components/EffectPanel';
 import { VideoPlanPanel } from './src/components/VideoPlanPanel';
 import { LyricalFlowWrapper } from './src/components/LyricalFlowUI';
+import { ExportSettingsPanel } from './src/components/ExportSettingsPanel';
+import { Timeline } from './src/components/Timeline';
 import {
   AppState,
   LyricLine,
@@ -58,6 +60,9 @@ import {
   TextKeyframe,
   EasingType,
   MotionPreset,
+  ExportSettings,
+  ExportProgress,
+  DEFAULT_EXPORT_SETTINGS,
 } from './types';
 import type {
   VideoPlan,
@@ -208,6 +213,13 @@ const App = () => {
   // New UI toggle and audio duration
   const [useNewUI, setUseNewUI] = useState(true);
   const [audioDuration, setAudioDuration] = useState(0);
+
+  // Export settings for professional output quality
+  const [exportSettings, setExportSettings] = useState<ExportSettings>(DEFAULT_EXPORT_SETTINGS);
+  const [exportProgress, setExportProgress] = useState<ExportProgress | null>(null);
+  const [showExportSettings, setShowExportSettings] = useState(false);
+  const [showTimeline, setShowTimeline] = useState(false);
+  const [selectedTimelineLyricIndex, setSelectedTimelineLyricIndex] = useState<number | null>(null);
 
   // Initialize effects system on mount
   useEffect(() => {
@@ -718,11 +730,29 @@ const App = () => {
     }
   };
 
-  // Handle recording start/stop
-  const startRecording = () => {
-    if (!canvasRef.current || !mediaStreamDestRef.current) return;
+  // Export video - automated flow
+  const exportProgressIntervalRef = useRef<number | null>(null);
 
-    const canvasStream = canvasRef.current.captureStream(30);
+  const startExport = () => {
+    if (!canvasRef.current || !mediaStreamDestRef.current || !audioElementRef.current) return;
+
+    const audio = audioElementRef.current;
+    const duration = audio.duration;
+
+    if (!duration || duration === 0) {
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          role: 'model',
+          text: 'Cannot export: No audio loaded or audio has no duration.',
+          timestamp: new Date(),
+        },
+      ]);
+      return;
+    }
+
+    // Use framerate from export settings
+    const canvasStream = canvasRef.current.captureStream(exportSettings.framerate);
     const audioStream = mediaStreamDestRef.current.stream;
 
     // Combine canvas video with audio
@@ -734,32 +764,162 @@ const App = () => {
     const recorder = new MediaRecorder(combinedStream, { mimeType: 'video/webm' });
     recordedChunksRef.current = [];
 
+    setExportProgress({ stage: 'recording', percent: 0, message: 'Exporting video...' });
+
     recorder.ondataavailable = (e) => {
       if (e.data.size > 0) {
         recordedChunksRef.current.push(e.data);
       }
     };
 
-    recorder.onstop = () => {
-      const blob = new Blob(recordedChunksRef.current, { type: 'video/webm' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `lyrical-flow-${Date.now()}.webm`;
-      a.click();
-      URL.revokeObjectURL(url);
+    recorder.onstop = async () => {
+      // Clear progress interval
+      if (exportProgressIntervalRef.current) {
+        clearInterval(exportProgressIntervalRef.current);
+        exportProgressIntervalRef.current = null;
+      }
+
+      const webmBlob = new Blob(recordedChunksRef.current, { type: 'video/webm' });
+
+      if (exportSettings.format === 'mp4') {
+        setExportProgress({ stage: 'converting', percent: 0, message: 'Loading FFmpeg...' });
+        try {
+          // Import dynamically to avoid loading FFmpeg until needed
+          const { convertWebMToMP4 } = await import('./services/ffmpegService');
+          setExportProgress({ stage: 'converting', percent: 5, message: 'Converting to MP4...' });
+          const mp4Blob = await convertWebMToMP4(webmBlob, {
+            quality: exportSettings.quality,
+            framerate: exportSettings.framerate,
+            onProgress: (percent) => {
+              // Scale progress from 5-95% to leave room for loading and finalizing
+              const scaledPercent = 5 + Math.round(percent * 0.9);
+              setExportProgress({
+                stage: 'converting',
+                percent: scaledPercent,
+                message: 'Converting to MP4...',
+              });
+            },
+          });
+          setExportProgress({ stage: 'complete', percent: 100, message: 'Download starting...' });
+          downloadBlob(mp4Blob, `lyrical-flow-${Date.now()}.mp4`);
+          setChatMessages((prev) => [
+            ...prev,
+            {
+              role: 'model',
+              text: `Exported ${exportSettings.resolution} MP4 at ${exportSettings.framerate}fps (${exportSettings.quality} quality)`,
+              timestamp: new Date(),
+            },
+          ]);
+        } catch (error) {
+          console.error('MP4 conversion failed:', error);
+          setChatMessages((prev) => [
+            ...prev,
+            {
+              role: 'model',
+              text: 'MP4 conversion failed. Downloading as WebM instead.',
+              timestamp: new Date(),
+            },
+          ]);
+          // Fallback to WebM
+          downloadBlob(webmBlob, `lyrical-flow-${Date.now()}.webm`);
+        }
+      } else {
+        downloadBlob(webmBlob, `lyrical-flow-${Date.now()}.webm`);
+        setChatMessages((prev) => [
+          ...prev,
+          {
+            role: 'model',
+            text: `Exported ${exportSettings.resolution} WebM at ${exportSettings.framerate}fps`,
+            timestamp: new Date(),
+          },
+        ]);
+      }
+
+      setExportProgress(null);
     };
 
+    // Auto-stop when audio ends
+    const handleAudioEnded = () => {
+      audio.removeEventListener('ended', handleAudioEnded);
+      // Small delay to ensure final frames are captured
+      setTimeout(() => {
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+          mediaRecorderRef.current.stop();
+        }
+        setState((prev) => ({ ...prev, isRecording: false, isPlaying: false }));
+      }, 100);
+    };
+
+    audio.addEventListener('ended', handleAudioEnded);
+
+    // Start recording
     mediaRecorderRef.current = recorder;
     recorder.start();
-    setState((prev) => ({ ...prev, isRecording: true }));
+
+    // Seek to beginning and play
+    audio.currentTime = 0;
+    audio.play();
+
+    setState((prev) => ({ ...prev, isRecording: true, isPlaying: true }));
+    setShowExportSettings(false);
+
+    // Update progress based on playback position
+    exportProgressIntervalRef.current = window.setInterval(() => {
+      if (audioElementRef.current) {
+        const currentTime = audioElementRef.current.currentTime;
+        const percent = Math.round((currentTime / duration) * 100);
+        setExportProgress({
+          stage: 'recording',
+          percent,
+          message: `Exporting... ${formatTime(currentTime)} / ${formatTime(duration)}`,
+        });
+      }
+    }, 250);
   };
 
-  const stopRecording = () => {
+  // Format time as MM:SS
+  const formatTime = (seconds: number): string => {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  // Helper function to download a blob
+  const downloadBlob = (blob: Blob, filename: string) => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // Cancel export
+  const cancelExport = () => {
+    // Stop the recorder
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
     }
-    setState((prev) => ({ ...prev, isRecording: false }));
+
+    // Stop and reset audio
+    if (audioElementRef.current) {
+      audioElementRef.current.pause();
+      audioElementRef.current.currentTime = 0;
+    }
+
+    // Clear progress interval
+    if (exportProgressIntervalRef.current) {
+      clearInterval(exportProgressIntervalRef.current);
+      exportProgressIntervalRef.current = null;
+    }
+
+    setState((prev) => ({ ...prev, isRecording: false, isPlaying: false }));
+    setExportProgress(null);
+
+    setChatMessages((prev) => [
+      ...prev,
+      { role: 'model', text: 'Export cancelled.', timestamp: new Date() },
+    ]);
   };
 
   // Handle microphone transcription
@@ -1216,6 +1376,7 @@ const App = () => {
           setChatOpen={setChatOpen}
           isProcessing={isProcessing}
           onFileUpload={handleFileUpload}
+          onImageAnalysis={handleImageAnalysis}
           onShowGenModal={setShowGenModal}
           audioRef={audioElementRef}
           duration={audioDuration}
@@ -2261,24 +2422,33 @@ const App = () => {
             lyricEffects={state.lyricEffects}
             backgroundEffects={state.backgroundEffects}
             activeGenre={state.genreOverride ?? state.detectedGenre}
+            exportResolution={exportSettings.resolution}
           />
 
           {/* Playback Controls Overlay */}
           <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-4 bg-slate-900/80 backdrop-blur border border-white/10 px-6 py-3 rounded-2xl z-20">
             <button
               onClick={() => {
-                if (audioElementRef.current) {
+                if (audioElementRef.current && !state.isRecording) {
                   audioElementRef.current.currentTime = 0;
                 }
               }}
-              className="text-slate-400 hover:text-white"
+              disabled={state.isRecording}
+              className={`text-slate-400 ${state.isRecording ? 'opacity-50 cursor-not-allowed' : 'hover:text-white'}`}
+              title={state.isRecording ? 'Disabled during export' : 'Restart'}
             >
               <ArrowUpTrayIcon className="w-5 h-5 -rotate-90" />
             </button>
 
             <button
               onClick={togglePlay}
-              className="w-12 h-12 flex items-center justify-center bg-white text-black rounded-full hover:scale-105 transition-transform"
+              disabled={state.isRecording}
+              className={`w-12 h-12 flex items-center justify-center bg-white text-black rounded-full transition-transform ${
+                state.isRecording ? 'opacity-50 cursor-not-allowed' : 'hover:scale-105'
+              }`}
+              title={
+                state.isRecording ? 'Disabled during export' : state.isPlaying ? 'Pause' : 'Play'
+              }
             >
               {state.isPlaying ? (
                 <PauseIcon className="w-6 h-6" />
@@ -2293,12 +2463,15 @@ const App = () => {
                 min="0"
                 max={audioElementRef.current?.duration || 100}
                 value={state.currentTime}
+                disabled={state.isRecording}
                 onChange={(e) => {
                   const t = parseFloat(e.target.value);
                   if (audioElementRef.current) audioElementRef.current.currentTime = t;
                   setState((prev) => ({ ...prev, currentTime: t }));
                 }}
-                className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-pink-500"
+                className={`w-full h-1 bg-slate-700 rounded-lg appearance-none accent-pink-500 ${
+                  state.isRecording ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'
+                }`}
               />
               <div className="flex justify-between text-[10px] text-slate-400 font-mono">
                 <span>{new Date(state.currentTime * 1000).toISOString().substr(14, 5)}</span>
@@ -2310,24 +2483,101 @@ const App = () => {
               </div>
             </div>
 
-            {/* Record Button */}
+            {/* Export Settings Toggle */}
             <button
-              onClick={state.isRecording ? stopRecording : startRecording}
+              onClick={() => setShowExportSettings(!showExportSettings)}
+              className={`p-2 rounded-full transition-all ${
+                showExportSettings
+                  ? 'bg-purple-500 text-white'
+                  : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+              }`}
+              title="Export Settings"
+            >
+              <AdjustmentsHorizontalIcon className="w-4 h-4" />
+            </button>
+
+            {/* Export Video Button */}
+            <button
+              onClick={state.isRecording ? cancelExport : startExport}
               disabled={!state.audioUrl}
               className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs font-medium transition-all ${
                 state.isRecording
-                  ? 'bg-red-500 text-white animate-record-pulse'
+                  ? 'bg-red-500 text-white animate-pulse'
                   : state.audioUrl
-                    ? 'bg-slate-700 hover:bg-red-600 text-slate-300 hover:text-white'
+                    ? 'bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white'
                     : 'bg-slate-800 text-slate-500 cursor-not-allowed'
               }`}
             >
-              <div
-                className={`w-3 h-3 rounded-full ${state.isRecording ? 'bg-white' : 'bg-red-500'}`}
-              ></div>
-              {state.isRecording ? 'Stop' : 'Record'}
+              {state.isRecording ? (
+                <>
+                  <XMarkIcon className="w-4 h-4" />
+                  Cancel
+                </>
+              ) : (
+                <>
+                  <FilmIcon className="w-4 h-4" />
+                  Export Video
+                </>
+              )}
             </button>
           </div>
+
+          {/* Export Progress Indicator (always visible when exporting) */}
+          {exportProgress && !showExportSettings && (
+            <div className="absolute bottom-24 left-1/2 -translate-x-1/2 bg-slate-800/90 backdrop-blur border border-purple-500/30 rounded-xl px-4 py-3 z-30 min-w-64">
+              <div className="flex justify-between text-xs text-purple-200 mb-2">
+                <span>{exportProgress.message}</span>
+                <span>{exportProgress.percent}%</span>
+              </div>
+              <div className="w-full bg-purple-900/50 rounded-full h-2">
+                <div
+                  className="bg-purple-500 h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${exportProgress.percent}%` }}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Export Settings Panel (popover) */}
+          {showExportSettings && (
+            <div className="absolute bottom-24 left-1/2 -translate-x-1/2 w-96 z-30">
+              <ExportSettingsPanel
+                settings={exportSettings}
+                onChange={setExportSettings}
+                progress={exportProgress}
+                isRecording={state.isRecording}
+                aspectRatio={state.aspectRatio}
+                onAspectRatioChange={(ar) => setState((prev) => ({ ...prev, aspectRatio: ar }))}
+              />
+            </div>
+          )}
+
+          {/* Chat Toggle */}
+          {/* Timeline Toggle */}
+          <button
+            onClick={() => setShowTimeline(!showTimeline)}
+            className={`absolute top-6 right-20 p-3 bg-slate-900/80 backdrop-blur border rounded-full transition-colors z-20 ${
+              showTimeline
+                ? 'border-cyan-500/50 text-cyan-400'
+                : 'border-white/10 text-white hover:bg-white/10'
+            }`}
+            title={showTimeline ? 'Hide Timeline' : 'Show Timeline'}
+          >
+            <svg
+              className="w-6 h-6"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <line x1="3" y1="6" x2="21" y2="6" />
+              <line x1="3" y1="12" x2="21" y2="12" />
+              <line x1="3" y1="18" x2="21" y2="18" />
+              <circle cx="9" cy="6" r="2" fill="currentColor" />
+              <circle cx="15" cy="12" r="2" fill="currentColor" />
+              <circle cx="6" cy="18" r="2" fill="currentColor" />
+            </svg>
+          </button>
 
           {/* Chat Toggle */}
           <button
@@ -2337,6 +2587,29 @@ const App = () => {
             <ChatBubbleLeftRightIcon className="w-6 h-6 text-white" />
           </button>
         </div>
+
+        {/* Timeline */}
+        {showTimeline && (
+          <Timeline
+            duration={audioElementRef.current?.duration || 100}
+            currentTime={state.currentTime}
+            onSeek={(t) => {
+              if (audioElementRef.current) audioElementRef.current.currentTime = t;
+              setState((prev) => ({ ...prev, currentTime: t }));
+            }}
+            isPlaying={state.isPlaying}
+            onPlayPause={togglePlay}
+            lyrics={state.lyrics}
+            onLyricKeyframesChange={(index, keyframes) => {
+              setState((prev) => ({
+                ...prev,
+                lyrics: prev.lyrics.map((l, i) => (i === index ? { ...l, keyframes } : l)),
+              }));
+            }}
+            selectedLyricIndex={selectedTimelineLyricIndex}
+            onSelectLyric={setSelectedTimelineLyricIndex}
+          />
+        )}
 
         {/* CHAT PANEL */}
         {chatOpen && (

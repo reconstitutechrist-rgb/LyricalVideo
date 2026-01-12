@@ -45,6 +45,32 @@ export type AspectRatio = '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '9:16' | '16:9
 export type ImageSize = '1K' | '2K' | '4K';
 export type VideoResolution = '720p' | '1080p';
 
+// Export settings for professional output quality
+export type ExportResolution = '720p' | '1080p' | '4K';
+export type ExportFramerate = 24 | 30 | 60;
+export type ExportQuality = 'low' | 'medium' | 'high' | 'ultra';
+export type ExportFormat = 'webm' | 'mp4';
+
+export interface ExportSettings {
+  resolution: ExportResolution;
+  framerate: ExportFramerate;
+  quality: ExportQuality;
+  format: ExportFormat;
+}
+
+export const DEFAULT_EXPORT_SETTINGS: ExportSettings = {
+  resolution: '1080p',
+  framerate: 30,
+  quality: 'high',
+  format: 'mp4',
+};
+
+export interface ExportProgress {
+  stage: 'recording' | 'processing' | 'converting' | 'complete';
+  percent: number;
+  message?: string;
+}
+
 export interface GeneratedAsset {
   type: 'image' | 'video';
   url: string;
@@ -86,7 +112,9 @@ export type BlendMode =
   | 'saturation'
   | 'color'
   | 'luminosity';
-export type FontFamily = 'Space Grotesk' | 'Inter' | 'Roboto' | 'Montserrat' | 'Cinzel';
+// Built-in fonts as literal union for type safety, but allow custom font strings
+export type BuiltinFontFamily = 'Space Grotesk' | 'Inter' | 'Roboto' | 'Montserrat' | 'Cinzel';
+export type FontFamily = BuiltinFontFamily | (string & {}); // Allows custom fonts while keeping intellisense for built-ins
 export type FrequencyBand = 'bass' | 'mid' | 'treble' | 'avg';
 
 export interface VisualSettings {

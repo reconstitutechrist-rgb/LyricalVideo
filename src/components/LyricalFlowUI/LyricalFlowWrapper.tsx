@@ -38,6 +38,7 @@ export interface LyricalFlowWrapperProps {
 
   // File Handling
   onFileUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onImageAnalysis: (e: React.ChangeEvent<HTMLInputElement>) => void;
 
   // Background Generation
   onShowGenModal: (type: 'image' | 'video') => void;
@@ -62,6 +63,7 @@ export const LyricalFlowWrapper: React.FC<LyricalFlowWrapperProps> = ({
   setChatOpen,
   isProcessing,
   onFileUpload,
+  onImageAnalysis,
   onShowGenModal,
   audioRef,
   duration,
@@ -298,14 +300,6 @@ export const LyricalFlowWrapper: React.FC<LyricalFlowWrapperProps> = ({
     setIsRecordingMic(false);
     // TODO: Implement actual microphone recording stop
     console.log('Stopping mic recording...');
-  }, []);
-
-  const handleImageAnalysis = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      // TODO: Implement image analysis
-      console.log('Analyzing image:', file.name);
-    }
   }, []);
 
   // ========================================
@@ -737,7 +731,7 @@ export const LyricalFlowWrapper: React.FC<LyricalFlowWrapperProps> = ({
       // Callbacks - Recording
       onStartMicRecording={handleStartMicRecording}
       onStopMicRecording={handleStopMicRecording}
-      onImageAnalysis={handleImageAnalysis}
+      onImageAnalysis={onImageAnalysis}
       // Callbacks - Edit Mode
       onEditModeToggle={handleEditModeToggle}
       onLyricSelect={handleLyricSelect}

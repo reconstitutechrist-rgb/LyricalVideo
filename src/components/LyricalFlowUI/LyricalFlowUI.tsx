@@ -30,6 +30,7 @@ import {
   EffectInstanceConfig,
 } from '../../../types';
 import { CollapsibleSection } from './CollapsibleSection';
+import { FontUploader } from '../FontUploader';
 
 // ============================================
 // Types
@@ -296,14 +297,6 @@ const COLOR_PALETTE_OPTIONS: { value: ColorPalette; label: string; colors: strin
   { value: 'ocean', label: 'Ocean', colors: ['#0077b6', '#00b4d8', '#90e0ef'] },
   { value: 'matrix', label: 'Matrix', colors: ['#00ff41', '#008f11', '#003b00'] },
   { value: 'fire', label: 'Fire', colors: ['#ff0000', '#ff7700', '#ffcc00'] },
-];
-
-const FONT_FAMILY_OPTIONS: { value: FontFamily; label: string }[] = [
-  { value: 'Space Grotesk', label: 'Space Grotesk' },
-  { value: 'Inter', label: 'Inter' },
-  { value: 'Roboto', label: 'Roboto' },
-  { value: 'Montserrat', label: 'Montserrat' },
-  { value: 'Cinzel', label: 'Cinzel' },
 ];
 
 const TEXT_ANIMATION_OPTIONS: { value: TextAnimationStyle; label: string }[] = [
@@ -812,21 +805,8 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
 
               {/* Font Family */}
               <div className="p-2.5 rounded-lg glass-card">
-                <label htmlFor="font-family" className="text-[9px] text-slate-400 mb-1.5 block">
-                  Font Family
-                </label>
-                <select
-                  id="font-family"
-                  value={fontFamily}
-                  onChange={(e) => onFontFamilyChange(e.target.value as FontFamily)}
-                  className="glass-select w-full py-1.5 px-2 rounded-md text-[10px] text-slate-300 outline-none"
-                >
-                  {FONT_FAMILY_OPTIONS.map((font) => (
-                    <option key={font.value} value={font.value}>
-                      {font.label}
-                    </option>
-                  ))}
-                </select>
+                <label className="text-[9px] text-slate-400 mb-1.5 block">Font Family</label>
+                <FontUploader currentFont={fontFamily} onFontChange={onFontFamilyChange} />
               </div>
 
               {/* Text Animation */}
