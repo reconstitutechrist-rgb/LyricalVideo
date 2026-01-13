@@ -743,6 +743,22 @@ const App = () => {
 
   // Export video - automated flow
   const exportProgressIntervalRef = useRef<number | null>(null);
+  const audioEndedHandlerRef = useRef<(() => void) | null>(null);
+
+  // Cleanup export resources on unmount to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      if (exportProgressIntervalRef.current) {
+        clearInterval(exportProgressIntervalRef.current);
+        exportProgressIntervalRef.current = null;
+      }
+      // Remove audio ended listener if it exists
+      if (audioEndedHandlerRef.current && audioElementRef.current) {
+        audioElementRef.current.removeEventListener('ended', audioEndedHandlerRef.current);
+        audioEndedHandlerRef.current = null;
+      }
+    };
+  }, []);
 
   const startExport = () => {
     if (!canvasRef.current || !mediaStreamDestRef.current || !audioElementRef.current) return;
@@ -852,6 +868,7 @@ const App = () => {
     // Auto-stop when audio ends
     const handleAudioEnded = () => {
       audio.removeEventListener('ended', handleAudioEnded);
+      audioEndedHandlerRef.current = null;
       // Small delay to ensure final frames are captured
       setTimeout(() => {
         if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
@@ -861,6 +878,8 @@ const App = () => {
       }, 100);
     };
 
+    // Store handler reference for cleanup
+    audioEndedHandlerRef.current = handleAudioEnded;
     audio.addEventListener('ended', handleAudioEnded);
 
     // Start recording
@@ -912,8 +931,12 @@ const App = () => {
       mediaRecorderRef.current.stop();
     }
 
-    // Stop and reset audio
+    // Stop and reset audio, remove ended listener
     if (audioElementRef.current) {
+      if (audioEndedHandlerRef.current) {
+        audioElementRef.current.removeEventListener('ended', audioEndedHandlerRef.current);
+        audioEndedHandlerRef.current = null;
+      }
       audioElementRef.current.pause();
       audioElementRef.current.currentTime = 0;
     }

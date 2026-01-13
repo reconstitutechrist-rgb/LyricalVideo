@@ -89,16 +89,19 @@ export const Timeline: React.FC<TimelineProps> = ({
     [isDragging, scrollLeft, pixelsPerSecond, duration, onSeek]
   );
 
+  // Stable reference for mouseup handler to avoid memory leak
+  const handleMouseUp = useCallback(() => setIsDragging(false), []);
+
   useEffect(() => {
     if (isDragging) {
       window.addEventListener('mousemove', handlePlayheadDrag);
-      window.addEventListener('mouseup', () => setIsDragging(false));
+      window.addEventListener('mouseup', handleMouseUp);
       return () => {
         window.removeEventListener('mousemove', handlePlayheadDrag);
-        window.removeEventListener('mouseup', () => setIsDragging(false));
+        window.removeEventListener('mouseup', handleMouseUp);
       };
     }
-  }, [isDragging, handlePlayheadDrag]);
+  }, [isDragging, handlePlayheadDrag, handleMouseUp]);
 
   // Auto-scroll to keep playhead visible
   useEffect(() => {

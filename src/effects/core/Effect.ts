@@ -81,23 +81,35 @@ export abstract class Effect {
   protected isActive: boolean = false;
 
   constructor() {
-    // Initialize with default values after parameters are defined
-    setTimeout(() => {
-      this.paramValues = getDefaultValues(this.parameters);
-    }, 0);
+    // Note: Abstract properties (like `parameters`) are defined on the prototype,
+    // so they're available even in the base constructor. However, to be safe,
+    // we initialize lazily on first parameter access or explicit init() call.
   }
 
   /**
-   * Initialize parameter values
+   * Initialize parameter values - should be called after construction
+   * or will be called lazily on first parameter access
    */
   init(): void {
-    this.paramValues = getDefaultValues(this.parameters);
+    if (Object.keys(this.paramValues).length === 0 && this.parameters.length > 0) {
+      this.paramValues = getDefaultValues(this.parameters);
+    }
+  }
+
+  /**
+   * Ensure parameters are initialized (lazy initialization)
+   */
+  private ensureInitialized(): void {
+    if (Object.keys(this.paramValues).length === 0 && this.parameters.length > 0) {
+      this.paramValues = getDefaultValues(this.parameters);
+    }
   }
 
   /**
    * Set a parameter value
    */
   setParameter(id: string, value: number | string | boolean): void {
+    this.ensureInitialized();
     this.paramValues[id] = value;
   }
 
@@ -105,6 +117,7 @@ export abstract class Effect {
    * Get a parameter value
    */
   getParameter<T extends number | string | boolean>(id: string): T {
+    this.ensureInitialized();
     return this.paramValues[id] as T;
   }
 
@@ -112,6 +125,7 @@ export abstract class Effect {
    * Get all parameter values
    */
   getParameterValues(): ParameterValues {
+    this.ensureInitialized();
     return { ...this.paramValues };
   }
 
@@ -119,6 +133,7 @@ export abstract class Effect {
    * Set all parameter values at once
    */
   setParameterValues(values: ParameterValues): void {
+    this.ensureInitialized();
     this.paramValues = { ...this.paramValues, ...values };
   }
 

@@ -85,8 +85,21 @@ Return ONLY valid JSON in this exact format:
 
   try {
     const json = JSON.parse(jsonStr);
+
+    // Validate that the genre is a valid Genre enum value
+    const validGenres = Object.values(Genre);
+    const parsedGenre = validGenres.includes(json.genre)
+      ? (json.genre as Genre)
+      : geminiResult.genre; // Fall back to Gemini's genre if invalid
+
+    if (!validGenres.includes(json.genre)) {
+      console.warn(
+        `Claude returned invalid genre "${json.genre}", falling back to Gemini's result`
+      );
+    }
+
     return {
-      genre: json.genre as Genre,
+      genre: parsedGenre,
       confidence: json.confidence || 0.7,
       suggestedStyle: json.suggestedStyle || '',
       mood: json.mood || 'neutral',

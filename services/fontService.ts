@@ -94,6 +94,9 @@ class FontService {
             // Recreate blob URL from data URL
             if (font.dataUrl) {
               const response = await fetch(font.dataUrl);
+              if (!response.ok) {
+                throw new Error(`Failed to fetch font data: ${response.statusText}`);
+              }
               const blob = await response.blob();
               font.blobUrl = URL.createObjectURL(blob);
             }

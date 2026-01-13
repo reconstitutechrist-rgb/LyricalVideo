@@ -49,8 +49,10 @@ export const calculateConsensus = (
     disagreements.push(`Mood: Gemini="${geminiResult.mood}", Claude="${claudeResult.mood}"`);
   }
 
-  // Determine consensus values (prefer Gemini when disagreement, as it analyzes audio directly)
-  const consensusGenre = genreMatch ? geminiResult.genre : geminiResult.genre;
+  // Determine consensus values
+  // When genres match, use the agreed genre
+  // When they differ, prefer Gemini as it analyzes audio directly (Claude only sees lyrics/metadata)
+  const consensusGenre = geminiResult.genre;
   const consensusMood = moodSimilar
     ? geminiResult.mood
     : `${geminiResult.mood} / ${claudeResult.mood}`;

@@ -319,9 +319,11 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
         audioRef.current = audio;
         setAudioElement(audio);
 
-        audio.addEventListener('timeupdate', () => {
+        // Store handler reference for proper cleanup
+        const handleTimeUpdate = () => {
           onTimeUpdate(audio.currentTime);
-        });
+        };
+        audio.addEventListener('timeupdate', handleTimeUpdate);
 
         const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
         const audioCtx = new AudioContext();
@@ -345,6 +347,7 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
         );
 
         return () => {
+          audio.removeEventListener('timeupdate', handleTimeUpdate);
           audio.pause();
           audioCtx.close();
         };

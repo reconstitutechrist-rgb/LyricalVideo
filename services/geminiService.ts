@@ -479,6 +479,9 @@ export const generateVideoBackground = async (
   if (!videoUri) throw new Error('Video generation failed');
 
   const res = await fetch(`${videoUri}&key=${process.env.API_KEY}`);
+  if (!res.ok) {
+    throw new Error(`Failed to fetch generated video: ${res.statusText}`);
+  }
   const blob = await res.blob();
   return URL.createObjectURL(blob);
 };
