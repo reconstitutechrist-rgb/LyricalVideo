@@ -15,14 +15,16 @@ import {
   ExportPreset,
   CustomExportPreset,
 } from '../../../services/exportPresets';
+import { useExportStore, useVisualSettingsStore } from '../../stores';
 
 interface ExportSettingsPanelProps {
-  settings: ExportSettings;
-  onChange: (settings: ExportSettings) => void;
-  progress: ExportProgress | null;
-  isRecording: boolean;
-  aspectRatio: AspectRatio;
-  onAspectRatioChange: (aspectRatio: AspectRatio) => void;
+  // Optional props - will use export store if not provided
+  settings?: ExportSettings;
+  onChange?: (settings: ExportSettings) => void;
+  progress?: ExportProgress | null;
+  isRecording?: boolean;
+  aspectRatio?: AspectRatio;
+  onAspectRatioChange?: (aspectRatio: AspectRatio) => void;
 }
 
 const RESOLUTION_OPTIONS: { value: ExportResolution; label: string; description: string }[] = [
@@ -66,13 +68,45 @@ const ASPECT_RATIO_OPTIONS: {
 ];
 
 export const ExportSettingsPanel: React.FC<ExportSettingsPanelProps> = ({
-  settings,
-  onChange,
-  progress,
-  isRecording,
-  aspectRatio,
-  onAspectRatioChange,
+  settings: settingsProp,
+  onChange: onChangeProp,
+  progress: progressProp,
+  isRecording: isRecordingProp,
+  aspectRatio: aspectRatioProp,
+  onAspectRatioChange: onAspectRatioChangeProp,
 }) => {
+  // Use export store values with props as override
+  const exportStore = useExportStore();
+  const visualSettingsStore = useVisualSettingsStore();
+
+  const settings = settingsProp ?? exportStore.settings;
+  const progress = progressProp ?? exportStore.progress;
+  const isRecording = isRecordingProp ?? exportStore.isRecording;
+  const aspectRatio = aspectRatioProp ?? visualSettingsStore.aspectRatio;
+
+  // Use store actions if props not provided
+  const onChange = useCallback(
+    (newSettings: ExportSettings) => {
+      if (onChangeProp) {
+        onChangeProp(newSettings);
+      } else {
+        exportStore.setSettings(newSettings);
+      }
+    },
+    [onChangeProp, exportStore]
+  );
+
+  const onAspectRatioChange = useCallback(
+    (ratio: AspectRatio) => {
+      if (onAspectRatioChangeProp) {
+        onAspectRatioChangeProp(ratio);
+      } else {
+        visualSettingsStore.setAspectRatio(ratio);
+      }
+    },
+    [onAspectRatioChangeProp, visualSettingsStore]
+  );
+
   const [showPresets, setShowPresets] = useState(true);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [, forceUpdate] = useState({});

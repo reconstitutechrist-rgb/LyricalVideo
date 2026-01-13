@@ -1,4 +1,5 @@
-import React, { useRef, useCallback, useState, useEffect } from 'react';
+import React, { useRef, useCallback, useState, useEffect, useMemo } from 'react';
+import { Virtuoso } from 'react-virtuoso';
 import {
   ArrowUpTrayIcon,
   PlayIcon,
@@ -32,6 +33,7 @@ import {
   WordTiming,
   SyllableTiming,
 } from '../../../types';
+import { formatTime } from '../../utils/time';
 import { WordTimingEditor } from '../LyricEditor/WordTimingEditor';
 import { CollapsibleSection } from './CollapsibleSection';
 import { FontUploader } from '../FontUploader';
@@ -599,12 +601,7 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
   const progressRef = useRef<HTMLDivElement>(null);
   const [timeShiftValue, setTimeShiftValue] = useState<string>('0');
 
-  // Format time as MM:SS
-  const formatTime = (seconds: number): string => {
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
+  // formatTime imported from utils/time
 
   // Handle progress bar click
   const handleProgressClick = useCallback(
@@ -675,9 +672,200 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
   // Progress percentage
   const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
 
-  // Find current lyric
-  const currentLyricIndex = lyrics.findIndex(
-    (l) => currentTime >= l.startTime && currentTime <= l.endTime
+  // Find current lyric - memoized binary search O(log n) instead of O(n) findIndex
+  const currentLyricIndex = useMemo(() => {
+    if (lyrics.length === 0) return -1;
+
+    // Binary search for lyrics sorted by startTime
+    let left = 0;
+    let right = lyrics.length - 1;
+
+    while (left <= right) {
+      const mid = Math.floor((left + right) / 2);
+      const lyric = lyrics[mid];
+
+      if (currentTime >= lyric.startTime && currentTime <= lyric.endTime) {
+        return mid;
+      } else if (currentTime < lyric.startTime) {
+        right = mid - 1;
+      } else {
+        left = mid + 1;
+      }
+    }
+    return -1;
+  }, [lyrics, currentTime]);
+
+  // Memoize available effect options to avoid O(m*n) filter on every render
+  const availableLyricEffects = useMemo(() => {
+    const activeIds = new Set(lyricEffects.map((e) => e.effectId));
+    return LYRIC_EFFECT_OPTIONS.filter((opt) => !activeIds.has(opt.id));
+  }, [lyricEffects]);
+
+  const availableBackgroundEffects = useMemo(() => {
+    const activeIds = new Set(backgroundEffects.map((e) => e.effectId));
+    return BACKGROUND_EFFECT_OPTIONS.filter((opt) => !activeIds.has(opt.id));
+  }, [backgroundEffects]);
+
+  // Virtualized lyric row renderer
+  const renderLyricRow = useCallback(
+    (i: number) => {
+      const lyric = lyrics[i];
+      if (!lyric) return null;
+
+      return (
+        <div
+          className={`w-full p-2 rounded-lg glass-card lyric-line text-left border-l-2 ${getSectionStyle(lyric.section)} ${
+            i === currentLyricIndex ? 'active' : ''
+          } ${editMode && selectedLyricIndices.has(i) ? 'ring-1 ring-cyan-400/50' : ''}`}
+          role="listitem"
+          aria-current={i === currentLyricIndex ? 'true' : undefined}
+        >
+          {editMode ? (
+            /* Edit Mode View */
+            <div className="space-y-1.5">
+              {/* Row 1: Checkbox, Time inputs, Section */}
+              <div className="flex items-center gap-2">
+                {/* Selection Checkbox */}
+                <input
+                  type="checkbox"
+                  checked={selectedLyricIndices.has(i)}
+                  onChange={() => onLyricSelect(i)}
+                  className="glass-checkbox w-3 h-3 rounded"
+                  aria-label={`Select lyric ${i + 1}`}
+                />
+                {/* Time Inputs - Draggable */}
+                <DraggableTimeInput
+                  value={lyric.startTime}
+                  onChange={(val) => onUpdateLyricTime(i, 'startTime', val)}
+                  max={lyric.endTime - 0.1}
+                  label="Start time"
+                />
+                <span className="text-[9px] text-slate-500">→</span>
+                <DraggableTimeInput
+                  value={lyric.endTime}
+                  onChange={(val) => onUpdateLyricTime(i, 'endTime', val)}
+                  min={lyric.startTime + 0.1}
+                  label="End time"
+                />
+                {/* Section Dropdown */}
+                <select
+                  value={lyric.section || ''}
+                  onChange={(e) => onUpdateLyricSection(i, e.target.value)}
+                  className="glass-select py-0.5 px-1 rounded text-[8px] flex-1"
+                  aria-label="Section type"
+                >
+                  <option value="">—</option>
+                  {SECTION_TYPE_OPTIONS.map((section) => (
+                    <option key={section} value={section}>
+                      {section}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {/* Row 2: Style Override, Palette Override */}
+              <div className="flex items-center gap-2 pl-5">
+                <select
+                  value={lyric.styleOverride || ''}
+                  onChange={(e) =>
+                    onUpdateLyricStyleOverride(
+                      i,
+                      e.target.value ? (e.target.value as VisualStyle) : null
+                    )
+                  }
+                  className="glass-select py-0.5 px-1 rounded text-[8px] flex-1"
+                  aria-label="Style override"
+                >
+                  {STYLE_OVERRIDE_OPTIONS.map((style) => (
+                    <option key={style.value || 'default'} value={style.value}>
+                      {style.label}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={lyric.paletteOverride || ''}
+                  onChange={(e) =>
+                    onUpdateLyricPaletteOverride(
+                      i,
+                      e.target.value ? (e.target.value as ColorPalette) : null
+                    )
+                  }
+                  className="glass-select py-0.5 px-1 rounded text-[8px] flex-1"
+                  aria-label="Palette override"
+                >
+                  {PALETTE_OVERRIDE_OPTIONS.map((palette) => (
+                    <option key={palette.value || 'default'} value={palette.value}>
+                      {palette.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {/* Row 3: Inline Text Editing */}
+              <input
+                type="text"
+                value={lyric.text}
+                onChange={(e) => onUpdateLyricText(i, e.target.value)}
+                className="w-full py-1 px-2 rounded text-[10px] text-slate-200 glass-card border border-white/5 focus:border-cyan-500/30 outline-none ml-5"
+                style={{ width: 'calc(100% - 1.25rem)' }}
+                aria-label="Lyric text"
+              />
+              {/* Row 4: Word Timing Chips (when word/syllable precision) */}
+              {syncPrecision !== 'line' && lyric.words && lyric.words.length > 0 && (
+                <div className="pl-5 mt-1.5">
+                  <WordTimingEditor
+                    words={lyric.words}
+                    lineStartTime={lyric.startTime}
+                    lineEndTime={lyric.endTime}
+                    precision={syncPrecision}
+                    onWordUpdate={(wordIndex, updates) => onUpdateWordTiming(i, wordIndex, updates)}
+                    onSyllableUpdate={
+                      onUpdateSyllableTiming
+                        ? (wordIndex, syllableIndex, updates) =>
+                            onUpdateSyllableTiming(i, wordIndex, syllableIndex, updates)
+                        : undefined
+                    }
+                  />
+                </div>
+              )}
+            </div>
+          ) : (
+            /* View Mode */
+            <button onClick={() => onEditLyric(i)} className="w-full text-left">
+              <div className="flex justify-between items-center mb-0.5">
+                <span className="text-[9px] text-cyan-400 font-mono">
+                  {formatTime(lyric.startTime)}
+                </span>
+                {lyric.section && (
+                  <span className="text-[8px] px-1.5 py-0.5 rounded-full bg-black/30 border border-white/5 uppercase tracking-wider text-slate-500">
+                    {lyric.section}
+                  </span>
+                )}
+              </div>
+              <p
+                className={`text-[10px] ${i === currentLyricIndex ? 'text-white' : 'text-slate-300/80'}`}
+              >
+                {lyric.text}
+              </p>
+            </button>
+          )}
+        </div>
+      );
+    },
+    [
+      lyrics,
+      currentLyricIndex,
+      editMode,
+      selectedLyricIndices,
+      syncPrecision,
+      onLyricSelect,
+      onUpdateLyricTime,
+      onUpdateLyricSection,
+      onUpdateLyricStyleOverride,
+      onUpdateLyricPaletteOverride,
+      onUpdateLyricText,
+      onUpdateWordTiming,
+      onUpdateSyllableTiming,
+      onEditLyric,
+    ]
   );
 
   return (
@@ -1189,9 +1377,7 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
                   aria-label="Add lyric effect"
                 >
                   <option value="">+ Add Effect...</option>
-                  {LYRIC_EFFECT_OPTIONS.filter(
-                    (opt) => !lyricEffects.find((e) => e.effectId === opt.id)
-                  ).map((effect) => (
+                  {availableLyricEffects.map((effect) => (
                     <option key={effect.id} value={effect.id}>
                       {effect.label}
                     </option>
@@ -1247,9 +1433,7 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
                   aria-label="Add background effect"
                 >
                   <option value="">+ Add Effect...</option>
-                  {BACKGROUND_EFFECT_OPTIONS.filter(
-                    (opt) => !backgroundEffects.find((e) => e.effectId === opt.id)
-                  ).map((effect) => (
+                  {availableBackgroundEffects.map((effect) => (
                     <option key={effect.id} value={effect.id}>
                       {effect.label}
                     </option>
@@ -1425,152 +1609,15 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
             </CollapsibleSection>
 
             {lyrics.length > 0 ? (
-              <div
-                className="space-y-1.5 max-h-64 overflow-y-auto custom-scrollbar"
+              <Virtuoso
+                style={{ height: '256px' }}
+                totalCount={lyrics.length}
+                itemContent={renderLyricRow}
+                overscan={3}
+                className="custom-scrollbar space-y-1.5"
                 role="list"
                 aria-label="Lyrics timeline"
-              >
-                {lyrics.map((lyric, i) => (
-                  <div
-                    key={lyric.id || i}
-                    className={`w-full p-2 rounded-lg glass-card lyric-line text-left border-l-2 ${getSectionStyle(lyric.section)} ${
-                      i === currentLyricIndex ? 'active' : ''
-                    } ${editMode && selectedLyricIndices.has(i) ? 'ring-1 ring-cyan-400/50' : ''}`}
-                    role="listitem"
-                    aria-current={i === currentLyricIndex ? 'true' : undefined}
-                  >
-                    {editMode ? (
-                      /* Edit Mode View */
-                      <div className="space-y-1.5">
-                        {/* Row 1: Checkbox, Time inputs, Section */}
-                        <div className="flex items-center gap-2">
-                          {/* Selection Checkbox */}
-                          <input
-                            type="checkbox"
-                            checked={selectedLyricIndices.has(i)}
-                            onChange={() => onLyricSelect(i)}
-                            className="glass-checkbox w-3 h-3 rounded"
-                            aria-label={`Select lyric ${i + 1}`}
-                          />
-                          {/* Time Inputs - Draggable */}
-                          <DraggableTimeInput
-                            value={lyric.startTime}
-                            onChange={(val) => onUpdateLyricTime(i, 'startTime', val)}
-                            max={lyric.endTime - 0.1}
-                            label="Start time"
-                          />
-                          <span className="text-[9px] text-slate-500">→</span>
-                          <DraggableTimeInput
-                            value={lyric.endTime}
-                            onChange={(val) => onUpdateLyricTime(i, 'endTime', val)}
-                            min={lyric.startTime + 0.1}
-                            label="End time"
-                          />
-                          {/* Section Dropdown */}
-                          <select
-                            value={lyric.section || ''}
-                            onChange={(e) => onUpdateLyricSection(i, e.target.value)}
-                            className="glass-select py-0.5 px-1 rounded text-[8px] flex-1"
-                            aria-label="Section type"
-                          >
-                            <option value="">—</option>
-                            {SECTION_TYPE_OPTIONS.map((section) => (
-                              <option key={section} value={section}>
-                                {section}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                        {/* Row 2: Style Override, Palette Override */}
-                        <div className="flex items-center gap-2 pl-5">
-                          <select
-                            value={lyric.styleOverride || ''}
-                            onChange={(e) =>
-                              onUpdateLyricStyleOverride(
-                                i,
-                                e.target.value ? (e.target.value as VisualStyle) : null
-                              )
-                            }
-                            className="glass-select py-0.5 px-1 rounded text-[8px] flex-1"
-                            aria-label="Style override"
-                          >
-                            {STYLE_OVERRIDE_OPTIONS.map((style) => (
-                              <option key={style.value || 'default'} value={style.value}>
-                                {style.label}
-                              </option>
-                            ))}
-                          </select>
-                          <select
-                            value={lyric.paletteOverride || ''}
-                            onChange={(e) =>
-                              onUpdateLyricPaletteOverride(
-                                i,
-                                e.target.value ? (e.target.value as ColorPalette) : null
-                              )
-                            }
-                            className="glass-select py-0.5 px-1 rounded text-[8px] flex-1"
-                            aria-label="Palette override"
-                          >
-                            {PALETTE_OVERRIDE_OPTIONS.map((palette) => (
-                              <option key={palette.value || 'default'} value={palette.value}>
-                                {palette.label}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                        {/* Row 3: Inline Text Editing */}
-                        <input
-                          type="text"
-                          value={lyric.text}
-                          onChange={(e) => onUpdateLyricText(i, e.target.value)}
-                          className="w-full py-1 px-2 rounded text-[10px] text-slate-200 glass-card border border-white/5 focus:border-cyan-500/30 outline-none ml-5"
-                          style={{ width: 'calc(100% - 1.25rem)' }}
-                          aria-label="Lyric text"
-                        />
-                        {/* Row 4: Word Timing Chips (when word/syllable precision) */}
-                        {syncPrecision !== 'line' && lyric.words && lyric.words.length > 0 && (
-                          <div className="pl-5 mt-1.5">
-                            <WordTimingEditor
-                              words={lyric.words}
-                              lineStartTime={lyric.startTime}
-                              lineEndTime={lyric.endTime}
-                              precision={syncPrecision}
-                              onWordUpdate={(wordIndex, updates) =>
-                                onUpdateWordTiming(i, wordIndex, updates)
-                              }
-                              onSyllableUpdate={
-                                onUpdateSyllableTiming
-                                  ? (wordIndex, syllableIndex, updates) =>
-                                      onUpdateSyllableTiming(i, wordIndex, syllableIndex, updates)
-                                  : undefined
-                              }
-                            />
-                          </div>
-                        )}
-                      </div>
-                    ) : (
-                      /* View Mode */
-                      <button onClick={() => onEditLyric(i)} className="w-full text-left">
-                        <div className="flex justify-between items-center mb-0.5">
-                          <span className="text-[9px] text-cyan-400 font-mono">
-                            {formatTime(lyric.startTime)}
-                          </span>
-                          {lyric.section && (
-                            <span className="text-[8px] px-1.5 py-0.5 rounded-full bg-black/30 border border-white/5 uppercase tracking-wider text-slate-500">
-                              {lyric.section}
-                            </span>
-                          )}
-                        </div>
-                        <p
-                          className={`text-[10px] ${i === currentLyricIndex ? 'text-white' : 'text-slate-300/80'}`}
-                        >
-                          {lyric.text}
-                        </p>
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
+              />
             ) : (
               <div className="p-4 rounded-lg glass-card text-center">
                 <MusicalNoteIcon className="w-8 h-8 text-cyan-500/30 mx-auto mb-2" />

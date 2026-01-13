@@ -216,7 +216,7 @@ export class IndieDreamyEffect extends GenreBackgroundEffect {
     width: number,
     height: number,
     intensity: number,
-    time: number
+    _time: number
   ): void {
     // Animated grain
     ctx.globalAlpha = intensity;

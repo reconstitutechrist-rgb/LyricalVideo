@@ -6,7 +6,7 @@
 import { LyricEffectContext } from '../../core/Effect';
 import { EffectParameter, slider, boolean } from '../../core/ParameterTypes';
 import { CharacterLyricEffect } from '../LyricEffect';
-import { clamp, random } from '../../utils/MathUtils';
+import { random } from '../../utils/MathUtils';
 import { PhysicsBody, createPhysicsBody, updatePhysicsBody } from '../../utils/MathUtils';
 
 interface FallingChar extends PhysicsBody {
@@ -34,8 +34,17 @@ export class GravityFallEffect extends CharacterLyricEffect {
   private startTime: number = 0;
 
   renderLyric(context: LyricEffectContext): void {
-    const { ctx, lyric, text, fontSize, fontFamily, color, progress, currentTime, height } =
-      context;
+    const {
+      ctx,
+      lyric,
+      text: _text,
+      fontSize,
+      fontFamily,
+      color,
+      progress: _progress,
+      currentTime,
+      height,
+    } = context;
     const characters = this.getCharacters(context);
 
     const gravity = this.getParameter<number>('gravity') * 500;

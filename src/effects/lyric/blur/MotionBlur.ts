@@ -49,7 +49,16 @@ export class MotionBlurEffect extends CharacterLyricEffect {
   private lastLyricId: string = '';
 
   renderLyric(context: LyricEffectContext): void {
-    const { ctx, text, fontSize, fontFamily, color, currentTime, audioData, lyric } = context;
+    const {
+      ctx,
+      text: _text,
+      fontSize,
+      fontFamily,
+      color,
+      currentTime,
+      audioData,
+      lyric,
+    } = context;
 
     const motionType = this.getParameter<string>('motionType');
     const motionAmount = this.getParameter<number>('motionAmount');

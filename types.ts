@@ -1,4 +1,15 @@
 // =============================================================================
+// GLOBAL TYPE AUGMENTATIONS
+// =============================================================================
+
+// Extend Window interface for Safari/older browser AudioContext support
+declare global {
+  interface Window {
+    webkitAudioContext: typeof AudioContext;
+  }
+}
+
+// =============================================================================
 // LYRIC SYNC TYPES - Multi-precision timing system
 // =============================================================================
 

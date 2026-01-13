@@ -24,7 +24,7 @@ export class CharacterPopEffect extends CharacterLyricEffect {
   ];
 
   renderLyric(context: LyricEffectContext): void {
-    const { ctx, text, fontSize, fontFamily, color, progress } = context;
+    const { ctx, text: _text, fontSize, fontFamily, color, progress } = context;
     const characters = this.getCharacters(context);
 
     const popScale = this.getParameter<number>('popScale');

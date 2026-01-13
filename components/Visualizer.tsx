@@ -7,7 +7,6 @@ import {
   VisualSettings,
   ColorPalette,
   FrequencyBand,
-  EasingType,
   EffectInstanceConfig,
   Genre,
   ExportResolution,
@@ -16,12 +15,15 @@ import {
 import { EffectRegistry, EffectComposer } from '../src/effects/core';
 import { EffectContext, LyricEffectContext } from '../src/effects/core/Effect';
 import { BeatDetector, BeatData } from '../services/beatDetectionService';
+import { Easings } from '../src/effects/utils/MathUtils';
+import { useAudioStore } from '../src/stores';
+import { WebGLParticleRenderer, ParticleData } from '../src/renderers';
 
 interface VisualizerProps {
-  audioUrl: string | null;
+  audioUrl?: string | null;
   lyrics: LyricLine[];
-  currentTime: number;
-  isPlaying: boolean;
+  currentTime?: number;
+  isPlaying?: boolean;
   style: VisualStyle;
   backgroundAsset: GeneratedAsset | null;
   onTimeUpdate: (time: number) => void;
@@ -42,7 +44,7 @@ interface VisualizerProps {
   exportResolution?: ExportResolution;
 }
 
-// Particle Class
+// Particle Class - uses circular buffer for O(1) trail updates
 class Particle {
   x: number;
   y: number;
@@ -52,6 +54,8 @@ class Particle {
   speedY: number;
   color: string;
   history: { x: number; y: number }[];
+  historyIndex: number; // Circular buffer write index
+  historyLength: number; // Current valid entries count
 
   constructor(w: number, h: number, palette: ColorPalette) {
     this.x = Math.random() * w;
@@ -62,6 +66,8 @@ class Particle {
     this.speedY = (Math.random() - 0.5) * 2;
     this.color = this.getColor(palette);
     this.history = [];
+    this.historyIndex = 0;
+    this.historyLength = 0;
   }
 
   getColor(palette: ColorPalette): string {
@@ -107,23 +113,48 @@ class Particle {
     this.size = this.baseSize * boost;
 
     if (trailsEnabled) {
-      this.history.push({ x: this.x, y: this.y });
       const limit = Math.floor(5 + 15 * intensity * speedMult);
-      while (this.history.length > limit) {
-        this.history.shift();
+
+      // Circular buffer - O(1) instead of O(n) shift()
+      if (this.history.length < limit) {
+        this.history.push({ x: this.x, y: this.y });
+        this.historyLength = this.history.length;
+      } else {
+        const idx = this.historyIndex % limit;
+        this.history[idx] = { x: this.x, y: this.y };
+        this.historyIndex++;
+        this.historyLength = Math.min(this.historyLength + 1, limit);
+
+        if (this.history.length > limit) {
+          this.history.length = limit;
+          this.historyIndex = 0;
+          this.historyLength = limit;
+        }
       }
     } else {
       this.history = [];
+      this.historyIndex = 0;
+      this.historyLength = 0;
     }
   }
 
   draw(ctx: CanvasRenderingContext2D, trailsEnabled: boolean) {
-    if (trailsEnabled && this.history.length > 0) {
+    if (trailsEnabled && this.historyLength > 0) {
       ctx.beginPath();
-      ctx.moveTo(this.history[0].x, this.history[0].y);
-      for (const point of this.history) {
+
+      // Iterate circular buffer from oldest to newest
+      const len = this.history.length;
+      const startIdx = (this.historyIndex - this.historyLength + len) % len;
+
+      const firstPoint = this.history[startIdx];
+      ctx.moveTo(firstPoint.x, firstPoint.y);
+
+      for (let i = 1; i < this.historyLength; i++) {
+        const idx = (startIdx + i) % len;
+        const point = this.history[idx];
         ctx.lineTo(point.x, point.y);
       }
+
       ctx.lineTo(this.x, this.y);
       ctx.strokeStyle = this.color;
       ctx.lineWidth = this.size / 2;
@@ -137,39 +168,15 @@ class Particle {
   }
 }
 
-// Easing Functions
-const Easings: Record<EasingType, (t: number) => number> = {
-  linear: (t) => t,
-  easeIn: (t) => t * t,
-  easeOut: (t) => t * (2 - t),
-  easeInOut: (t) => (t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t),
-  bounce: (t) => {
-    const n1 = 7.5625,
-      d1 = 2.75;
-    if (t < 1 / d1) return n1 * t * t;
-    if (t < 2 / d1) return n1 * (t -= 1.5 / d1) * t + 0.75;
-    if (t < 2.5 / d1) return n1 * (t -= 2.25 / d1) * t + 0.9375;
-    return n1 * (t -= 2.625 / d1) * t + 0.984375;
-  },
-  elastic: (t) => {
-    if (t === 0 || t === 1) return t;
-    const p = 0.3;
-    const s = p / 4;
-    return Math.pow(2, -10 * t) * Math.sin(((t - s) * (2 * Math.PI)) / p) + 1;
-  },
-  back: (t) => {
-    const s = 1.70158;
-    return t * t * ((s + 1) * t - s);
-  },
-};
+// Easing functions imported from MathUtils
 
 const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
   (
     {
-      audioUrl,
+      audioUrl: audioUrlProp,
       lyrics,
-      currentTime,
-      isPlaying,
+      currentTime: currentTimeProp,
+      isPlaying: isPlayingProp,
       style,
       backgroundAsset,
       onTimeUpdate,
@@ -188,6 +195,12 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
     },
     ref
   ) => {
+    // Use audio store values, with props as override (for export mode)
+    const audioStore = useAudioStore();
+    const audioUrl = audioUrlProp ?? audioStore.audioUrl;
+    const currentTime = currentTimeProp ?? audioStore.currentTime;
+    const isPlaying = isPlayingProp ?? audioStore.isPlaying;
+
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const audioRef = useRef<HTMLAudioElement | null>(null);
     const analyserRef = useRef<AnalyserNode | null>(null);
@@ -216,6 +229,10 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
       spectralCentroid: 0,
       spectralFlux: 0,
     });
+
+    // WebGL particle renderer for GPU-accelerated rendering
+    const webglParticleRendererRef = useRef<WebGLParticleRenderer | null>(null);
+    const useWebGLRef = useRef<boolean>(WebGLParticleRenderer.isSupported());
 
     const [isBgLoading, setIsBgLoading] = useState(false);
 
@@ -325,7 +342,7 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
         };
         audio.addEventListener('timeupdate', handleTimeUpdate);
 
-        const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
         const audioCtx = new AudioContext();
         const analyser = audioCtx.createAnalyser();
         analyser.fftSize = 512;
@@ -352,7 +369,44 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
           audioCtx.close();
         };
       }
+      // Intentionally only re-run when audioUrl changes. width/height/palette are used for
+      // initial particle creation but shouldn't trigger audio context recreation on resize.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [audioUrl]);
+
+    // Initialize/resize WebGL particle renderer
+    useEffect(() => {
+      if (!useWebGLRef.current) return;
+
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+
+      const dpr = window.devicePixelRatio || 1;
+      const scaledWidth = width * dpr;
+      const scaledHeight = height * dpr;
+
+      if (!webglParticleRendererRef.current) {
+        try {
+          webglParticleRendererRef.current = new WebGLParticleRenderer(
+            scaledWidth,
+            scaledHeight,
+            200 // Max particles
+          );
+        } catch (e) {
+          console.warn('Failed to initialize WebGL particle renderer:', e);
+          useWebGLRef.current = false;
+        }
+      } else {
+        webglParticleRendererRef.current.resize(scaledWidth, scaledHeight);
+      }
+
+      return () => {
+        if (webglParticleRendererRef.current) {
+          webglParticleRendererRef.current.dispose();
+          webglParticleRendererRef.current = null;
+        }
+      };
+    }, [width, height]);
 
     useEffect(() => {
       if (backgroundAsset?.type === 'image' && backgroundAsset.url) {
@@ -700,6 +754,7 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
       }
 
       if (effectiveStyle === VisualStyle.NEON_PULSE) {
+        // Update particle physics
         particlesRef.current.forEach((p) => {
           p.update(
             motionFreqValue,
@@ -712,8 +767,59 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
             settings.speedY,
             settings.trailsEnabled
           );
-          p.draw(ctx, settings.trailsEnabled);
         });
+
+        // Render particles - use WebGL if available, fall back to Canvas 2D
+        if (useWebGLRef.current && webglParticleRendererRef.current && !settings.trailsEnabled) {
+          // WebGL rendering (faster for many particles, but doesn't support trails yet)
+          const particleData: ParticleData[] = particlesRef.current.map((p) => {
+            // Parse HSL color to RGB
+            const color = p.color;
+            let r = 1,
+              g = 1,
+              b = 1;
+            const hslMatch = color.match(/hsla?\((\d+),\s*(\d+)%,\s*(\d+)%/);
+            if (hslMatch) {
+              const h = parseInt(hslMatch[1]) / 360;
+              const s = parseInt(hslMatch[2]) / 100;
+              const l = parseInt(hslMatch[3]) / 100;
+              // HSL to RGB conversion
+              const hue2rgb = (p: number, q: number, t: number) => {
+                if (t < 0) t += 1;
+                if (t > 1) t -= 1;
+                if (t < 1 / 6) return p + (q - p) * 6 * t;
+                if (t < 1 / 2) return q;
+                if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+                return p;
+              };
+              const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+              const pp = 2 * l - q;
+              r = hue2rgb(pp, q, h + 1 / 3);
+              g = hue2rgb(pp, q, h);
+              b = hue2rgb(pp, q, h - 1 / 3);
+            }
+            return {
+              x: p.x,
+              y: p.y,
+              size: p.size,
+              r,
+              g,
+              b,
+              opacity: 0.8,
+            };
+          });
+
+          webglParticleRendererRef.current.updateParticles(particleData, particleData.length);
+          const particleCanvas = webglParticleRendererRef.current.render();
+          ctx.drawImage(particleCanvas, 0, 0, width, height);
+        } else {
+          // Canvas 2D fallback (supports trails)
+          particlesRef.current.forEach((p) => {
+            p.draw(ctx, settings.trailsEnabled);
+          });
+        }
+
+        // Draw central orb (always Canvas 2D - single draw call)
         let orbColor = '#00ffff';
         if (sentimentColor) orbColor = sentimentColor;
         else if (effectivePalette === 'sunset') orbColor = '#ffaa00';
@@ -729,21 +835,40 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
         ctx.stroke();
         ctx.shadowBlur = 0;
       } else if (effectiveStyle === VisualStyle.LIQUID_DREAM) {
+        // Optimized LIQUID_DREAM: Use LOD and batch drawing
         ctx.lineWidth = 2 * settings.intensity;
+
+        // LOD: Use larger step size for wider canvases to reduce draw calls
+        const step = width > 1920 ? 20 : width > 1280 ? 15 : 10;
+        const waveMotion = motionFreqValue / 255;
+
+        // Pre-compute time-based values once per frame
+        const timeOffset = time * 10 + 200;
+        const timeWaveOffset = time * (1 + waveMotion);
+
         for (let i = 0; i < 5; i++) {
           ctx.beginPath();
-          const strokeStyle = sentimentColor
+          ctx.strokeStyle = sentimentColor
             ? sentimentColor
-            : `hsla(${i * 40 + time * 10 + 200}, 70%, 60%, 0.5)`;
-          ctx.strokeStyle = strokeStyle;
-          const waveMotion = motionFreqValue / 255;
-          for (let x = 0; x < width; x += 10) {
+            : `hsla(${i * 40 + timeOffset}, 70%, 60%, 0.5)`;
+
+          // Pre-compute wave-specific offsets
+          const wavePhase = time + i;
+          const amplitude1 = 50 * pulse;
+          const amplitude2 = 20;
+
+          // First point - use moveTo
+          const y0 =
+            height / 2 + Math.sin(wavePhase) * amplitude1 + Math.sin(-timeWaveOffset) * amplitude2;
+          ctx.moveTo(0, y0);
+
+          // Batch all line segments
+          for (let x = step; x <= width; x += step) {
             const y =
               height / 2 +
-              Math.sin(x * 0.01 + time + i) * 50 * pulse +
-              Math.sin(x * 0.02 - time * (1 + waveMotion)) * 20;
-            if (x === 0) ctx.moveTo(x, y);
-            else ctx.lineTo(x, y);
+              Math.sin(x * 0.01 + wavePhase) * amplitude1 +
+              Math.sin(x * 0.02 - timeWaveOffset) * amplitude2;
+            ctx.lineTo(x, y);
           }
           ctx.stroke();
         }
@@ -1129,6 +1254,9 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
       return () => {
         if (requestRef.current) cancelAnimationFrame(requestRef.current);
       };
+      // draw is intentionally excluded - it's recreated each render but the animation loop
+      // naturally picks up latest values via refs. Including it would cause infinite re-renders.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [
       lyrics,
       currentTime,

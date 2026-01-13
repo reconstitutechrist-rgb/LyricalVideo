@@ -1,4 +1,11 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { useAbortableRequest, isAbortError } from './src/hooks/useAbortableRequest';
+import {
+  useAudioStore,
+  useLyricsStore,
+  useVisualSettingsStore,
+  useExportStore,
+} from './src/stores';
 import {
   ArrowUpTrayIcon,
   PlayIcon,
@@ -28,6 +35,7 @@ import {
 import Visualizer from './components/Visualizer';
 import Waveform from './components/Waveform';
 import { decodeAudio } from './utils/audio';
+import { formatTime } from './src/utils/time';
 import {
   analyzeAudioAndGetLyrics,
   sendChatMessage,
@@ -75,6 +83,13 @@ import type {
   VideoPlanVisualStyle,
   EmotionalPeak,
 } from './types';
+
+// Type for Gemini function call arguments (generateBackgroundImage tool)
+interface GenerateBackgroundArgs {
+  prompt: string;
+  aspectRatio?: AspectRatio;
+  resolution?: ImageSize;
+}
 
 // Motion Presets Definition
 const MOTION_PRESETS: MotionPreset[] = [
@@ -232,10 +247,303 @@ const App = () => {
   const [showWaveformEditor, setShowWaveformEditor] = useState(false);
   const [selectedWaveformLyricIndex, setSelectedWaveformLyricIndex] = useState<number | null>(null);
 
+  // ============================================================================
+  // Audio Store (Zustand) - Phase B1 Migration
+  // ============================================================================
+  const audioStore = useAudioStore();
+
+  // Sync audio store with legacy state during transition
+  // This effect keeps the legacy state.isPlaying in sync with the store
+  useEffect(() => {
+    if (state.isPlaying !== audioStore.isPlaying) {
+      setState((prev) => ({ ...prev, isPlaying: audioStore.isPlaying }));
+    }
+  }, [audioStore.isPlaying, state.isPlaying]);
+
+  // Sync currentTime from store to legacy state (for components not yet migrated)
+  useEffect(() => {
+    if (Math.abs(state.currentTime - audioStore.currentTime) > 0.1) {
+      setState((prev) => ({ ...prev, currentTime: audioStore.currentTime }));
+    }
+  }, [audioStore.currentTime, state.currentTime]);
+
+  // Sync audio file changes from legacy state to store
+  useEffect(() => {
+    if (state.audioFile !== audioStore.audioFile) {
+      audioStore.setAudioFile(state.audioFile);
+    }
+    if (state.audioBuffer !== audioStore.audioBuffer) {
+      audioStore.setAudioBuffer(state.audioBuffer);
+    }
+  }, [state.audioFile, state.audioBuffer, audioStore]);
+
+  // Sync audio element playback with store
+  useEffect(() => {
+    const audio = audioElementRef.current;
+    if (!audio) return;
+
+    if (audioStore.isPlaying) {
+      audio.play().catch(() => {
+        // Handle autoplay restrictions
+        audioStore.setIsPlaying(false);
+      });
+    } else {
+      audio.pause();
+    }
+  }, [audioStore.isPlaying, audioStore]);
+
+  // Sync audio element time updates to store
+  useEffect(() => {
+    const audio = audioElementRef.current;
+    if (!audio) return;
+
+    const handleTimeUpdate = () => {
+      audioStore.setCurrentTime(audio.currentTime);
+    };
+
+    audio.addEventListener('timeupdate', handleTimeUpdate);
+    return () => audio.removeEventListener('timeupdate', handleTimeUpdate);
+  }, [audioStore]);
+
+  // Create merged state for components not yet migrated
+  // TODO: Remove this after all components are migrated to use stores directly
+  const _legacyAudioState = useMemo(
+    () => ({
+      audioFile: audioStore.audioFile ?? state.audioFile,
+      audioUrl: audioStore.audioUrl ?? state.audioUrl,
+      audioBuffer: audioStore.audioBuffer ?? state.audioBuffer,
+      currentTime: audioStore.currentTime,
+      isPlaying: audioStore.isPlaying,
+    }),
+    [
+      audioStore.audioFile,
+      audioStore.audioUrl,
+      audioStore.audioBuffer,
+      audioStore.currentTime,
+      audioStore.isPlaying,
+      state.audioFile,
+      state.audioUrl,
+      state.audioBuffer,
+    ]
+  );
+
+  // ============================================================================
+  // Lyrics Store (Zustand) - Phase B2 Migration
+  // ============================================================================
+  const lyricsStore = useLyricsStore();
+
+  // Sync lyrics from legacy state to store
+  // Use length comparison to avoid infinite loops from reference changes
+  const stateLyricsRef = useRef(state.lyrics);
+  useEffect(() => {
+    // Only sync if the content actually changed (not just reference)
+    const stateLyrics = state.lyrics;
+    const storeLyrics = lyricsStore.lyrics;
+
+    // Skip if same reference or both empty
+    if (stateLyrics === storeLyrics) return;
+    if (stateLyrics.length === 0 && storeLyrics.length === 0) return;
+
+    // Only update store if legacy state changed (not from store sync)
+    if (stateLyrics !== stateLyricsRef.current && stateLyrics.length > 0) {
+      stateLyricsRef.current = stateLyrics;
+      lyricsStore.setLyrics(stateLyrics);
+    }
+  }, [state.lyrics, lyricsStore]);
+
+  // Sync lyrics from store to legacy state (when store is updated directly)
+  const storeLyricsRef = useRef(lyricsStore.lyrics);
+  useEffect(() => {
+    const stateLyrics = state.lyrics;
+    const storeLyrics = lyricsStore.lyrics;
+
+    // Skip if same reference or both empty
+    if (storeLyrics === stateLyrics) return;
+    if (storeLyrics.length === 0 && stateLyrics.length === 0) return;
+
+    // Only update legacy state if store changed (not from legacy sync)
+    if (storeLyrics !== storeLyricsRef.current && storeLyrics.length > 0) {
+      storeLyricsRef.current = storeLyrics;
+      setState((prev) => ({ ...prev, lyrics: storeLyrics }));
+    }
+  }, [lyricsStore.lyrics, state.lyrics]);
+
+  // Sync userProvidedLyrics
+  useEffect(() => {
+    if (state.userProvidedLyrics !== lyricsStore.userProvidedLyrics) {
+      lyricsStore.setUserProvidedLyrics(state.userProvidedLyrics);
+    }
+  }, [state.userProvidedLyrics, lyricsStore]);
+
+  // Sync sync state from legacy to store
+  useEffect(() => {
+    if (state.syncPrecision !== lyricsStore.syncPrecision) {
+      lyricsStore.setSyncPrecision(state.syncPrecision);
+    }
+    if (state.isSyncing !== lyricsStore.isSyncing) {
+      lyricsStore.setSyncing(state.isSyncing, state.syncProgress);
+    }
+    if (state.lastSyncConfidence !== lyricsStore.lastSyncConfidence) {
+      lyricsStore.setSyncConfidence(state.lastSyncConfidence);
+    }
+  }, [
+    state.syncPrecision,
+    state.isSyncing,
+    state.syncProgress,
+    state.lastSyncConfidence,
+    lyricsStore,
+  ]);
+
+  // ============================================================================
+  // Visual Settings Store (Zustand) - Phase B3 Migration
+  // ============================================================================
+  const visualSettingsStore = useVisualSettingsStore();
+
+  // Sync visual settings from legacy state to store
+  useEffect(() => {
+    if (state.currentStyle !== visualSettingsStore.currentStyle) {
+      visualSettingsStore.setCurrentStyle(state.currentStyle);
+    }
+    if (state.aspectRatio !== visualSettingsStore.aspectRatio) {
+      visualSettingsStore.setAspectRatio(state.aspectRatio);
+    }
+  }, [state.currentStyle, state.aspectRatio, visualSettingsStore]);
+
+  // Sync visual settings object (use JSON comparison for deep equality)
+  useEffect(() => {
+    if (
+      JSON.stringify(state.visualSettings) !== JSON.stringify(visualSettingsStore.visualSettings)
+    ) {
+      visualSettingsStore.setVisualSettings(state.visualSettings);
+    }
+  }, [state.visualSettings, visualSettingsStore]);
+
+  // Sync background asset
+  useEffect(() => {
+    if (state.backgroundAsset !== visualSettingsStore.backgroundAsset) {
+      visualSettingsStore.setBackgroundAsset(state.backgroundAsset);
+    }
+  }, [state.backgroundAsset, visualSettingsStore]);
+
+  // Sync effects arrays (use length comparison to avoid unnecessary updates)
+  const stateLyricEffectsRef = useRef(state.lyricEffects);
+  useEffect(() => {
+    // Only sync if content actually changed
+    if (state.lyricEffects !== stateLyricEffectsRef.current) {
+      stateLyricEffectsRef.current = state.lyricEffects;
+      visualSettingsStore.setLyricEffects(state.lyricEffects);
+    }
+  }, [state.lyricEffects, visualSettingsStore]);
+
+  const stateBgEffectsRef = useRef(state.backgroundEffects);
+  useEffect(() => {
+    // Only sync if content actually changed
+    if (state.backgroundEffects !== stateBgEffectsRef.current) {
+      stateBgEffectsRef.current = state.backgroundEffects;
+      visualSettingsStore.setBackgroundEffects(state.backgroundEffects);
+    }
+  }, [state.backgroundEffects, visualSettingsStore]);
+
+  // Sync genre
+  useEffect(() => {
+    if (state.detectedGenre !== visualSettingsStore.detectedGenre) {
+      visualSettingsStore.setDetectedGenre(state.detectedGenre);
+    }
+    if (state.genreOverride !== visualSettingsStore.genreOverride) {
+      visualSettingsStore.setGenreOverride(state.genreOverride);
+    }
+  }, [state.detectedGenre, state.genreOverride, visualSettingsStore]);
+
+  // ============================================================================
+  // Export Store (Zustand) - Phase B4 Migration
+  // ============================================================================
+  const exportStore = useExportStore();
+
+  // Sync export settings from legacy state to store
+  useEffect(() => {
+    if (JSON.stringify(exportSettings) !== JSON.stringify(exportStore.settings)) {
+      exportStore.setSettings(exportSettings);
+    }
+  }, [exportSettings, exportStore]);
+
+  // Sync export progress (use JSON comparison for deep equality)
+  useEffect(() => {
+    if (JSON.stringify(exportProgress) !== JSON.stringify(exportStore.progress)) {
+      exportStore.setProgress(exportProgress);
+    }
+  }, [exportProgress, exportStore]);
+
+  // Sync recording state
+  useEffect(() => {
+    if (state.isRecording !== exportStore.isRecording) {
+      exportStore.setIsRecording(state.isRecording);
+    }
+  }, [state.isRecording, exportStore]);
+
+  // Sync showExportSettings
+  useEffect(() => {
+    if (showExportSettings !== exportStore.showExportSettings) {
+      exportStore.setShowExportSettings(showExportSettings);
+    }
+  }, [showExportSettings, exportStore]);
+
   // Initialize effects system on mount
   useEffect(() => {
     initializeEffects();
   }, []);
+
+  // Keyboard shortcuts for playback control
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore if user is typing in an input field
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+        return;
+      }
+
+      switch (e.code) {
+        case 'Space':
+          // Space: Toggle play/pause
+          e.preventDefault();
+          if (audioStore.audioFile && !state.isRecording) {
+            audioStore.togglePlay();
+          }
+          break;
+
+        case 'ArrowLeft':
+          // Left arrow: Seek back 5 seconds
+          if (e.shiftKey && audioElementRef.current) {
+            e.preventDefault();
+            const newTime = Math.max(0, audioElementRef.current.currentTime - 5);
+            audioElementRef.current.currentTime = newTime;
+            audioStore.setCurrentTime(newTime);
+          }
+          break;
+
+        case 'ArrowRight':
+          // Right arrow: Seek forward 5 seconds
+          if (e.shiftKey && audioElementRef.current) {
+            e.preventDefault();
+            const duration = audioElementRef.current.duration || 0;
+            const newTime = Math.min(duration, audioElementRef.current.currentTime + 5);
+            audioElementRef.current.currentTime = newTime;
+            audioStore.setCurrentTime(newTime);
+          }
+          break;
+
+        case 'KeyM':
+          // M: Toggle mute
+          if (audioElementRef.current) {
+            e.preventDefault();
+            audioElementRef.current.muted = !audioElementRef.current.muted;
+          }
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [audioStore, state.isRecording]);
 
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingStatus, setProcessingStatus] = useState('');
@@ -274,6 +582,69 @@ const App = () => {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
+
+  // AI request hooks with throttling and abort support
+  // Using 'unknown' for complex types to avoid TypeScript strictness issues with hook generics
+  const planRequest = useAbortableRequest<VideoPlan>({
+    throttleMs: 2000,
+    requestType: 'PLAN_GENERATION',
+    onThrottled: (_waitMs, msg) => {
+      setChatMessages((prev) => [...prev, { role: 'model', text: msg, timestamp: new Date() }]);
+    },
+  });
+  const planModifyRequest = useAbortableRequest<VideoPlan>({
+    throttleMs: 2000,
+    requestType: 'PLAN_GENERATION',
+    onThrottled: (_waitMs, msg) => {
+      setChatMessages((prev) => [...prev, { role: 'model', text: msg, timestamp: new Date() }]);
+    },
+  });
+  const chatRequest = useAbortableRequest<{
+    text: string;
+    functionCalls: Array<{ name?: string; args?: Record<string, unknown> }>;
+  }>({
+    throttleMs: 1000,
+    requestType: 'CHAT',
+    onThrottled: (_waitMs, msg) => {
+      setChatMessages((prev) => [...prev, { role: 'model', text: msg, timestamp: new Date() }]);
+    },
+  });
+  const backgroundRequest = useAbortableRequest<{
+    type: 'image' | 'video';
+    url: string;
+    prompt: string;
+  } | null>({
+    throttleMs: 3000,
+    requestType: 'BACKGROUND',
+    onThrottled: (_waitMs, msg) => {
+      setChatMessages((prev) => [...prev, { role: 'model', text: msg, timestamp: new Date() }]);
+    },
+  });
+  const syncRequest = useAbortableRequest<{
+    lyrics: LyricLine[];
+    metadata: typeof state.metadata;
+    overallConfidence: number;
+    processingTimeMs?: number;
+  }>({
+    throttleMs: 2000,
+    requestType: 'SYNC',
+    onThrottled: (_waitMs, msg) => {
+      setChatMessages((prev) => [...prev, { role: 'model', text: msg, timestamp: new Date() }]);
+    },
+  });
+  const peakVisualRequest = useAbortableRequest<{
+    peakId: string;
+    lyricIndices: number[];
+    asset: { type: 'image' | 'video'; url: string; prompt: string };
+    transitionIn: 'fade' | 'cut' | 'dissolve';
+    transitionOut: 'fade' | 'cut' | 'dissolve';
+  }>({
+    throttleMs: 3000,
+    requestType: 'BACKGROUND',
+    onThrottled: (_waitMs, msg) => {
+      setChatMessages((prev) => [...prev, { role: 'model', text: msg, timestamp: new Date() }]);
+    },
+  });
 
   // --- Logic ---
 
@@ -520,13 +891,17 @@ const App = () => {
     }
   };
 
-  const togglePlay = () => {
-    setState((prev) => ({ ...prev, isPlaying: !prev.isPlaying }));
-  };
+  const togglePlay = useCallback(() => {
+    audioStore.togglePlay();
+  }, [audioStore]);
 
   // --- Lyric Editing Logic ---
 
-  const updateLyric = (index: number, field: keyof LyricLine, value: any) => {
+  const updateLyric = (
+    index: number,
+    field: keyof LyricLine,
+    value: LyricLine[keyof LyricLine]
+  ) => {
     const newLyrics = [...state.lyrics];
     newLyrics[index] = { ...newLyrics[index], [field]: value };
     setState((prev) => ({ ...prev, lyrics: newLyrics }));
@@ -542,7 +917,7 @@ const App = () => {
     lyricIndex: number,
     kfIndex: number,
     field: keyof TextKeyframe,
-    value: any
+    value: TextKeyframe[keyof TextKeyframe]
   ) => {
     const line = state.lyrics[lyricIndex];
     if (!line.keyframes) return;
@@ -694,52 +1069,57 @@ const App = () => {
   };
 
   // Handle background generation (image or video)
-  const handleGenerate = async () => {
+  const handleGenerate = useCallback(async () => {
     if (!genPrompt.trim()) return;
     setIsGenerating(true);
+    const currentPrompt = genPrompt;
+    const currentModal = showGenModal;
 
     try {
-      if (showGenModal === 'image') {
-        const url = await generateBackground(genPrompt, state.aspectRatio, targetSize);
+      const result = await backgroundRequest.execute(async (signal) => {
+        if (currentModal === 'image') {
+          const url = await generateBackground(
+            currentPrompt,
+            state.aspectRatio,
+            targetSize,
+            signal
+          );
+          return { type: 'image' as const, url, prompt: currentPrompt };
+        } else if (currentModal === 'video') {
+          const url = await generateVideoBackground(currentPrompt, genAspectRatio, signal);
+          return { type: 'video' as const, url, prompt: currentPrompt };
+        }
+        return null;
+      });
+
+      if (result) {
         setState((prev) => ({
           ...prev,
-          backgroundAsset: { type: 'image', url, prompt: genPrompt },
+          backgroundAsset: result,
         }));
         setChatMessages((prev) => [
           ...prev,
           {
             role: 'model',
-            text: `Generated background image: "${genPrompt}"`,
+            text: `Generated background ${result.type}: "${currentPrompt}"`,
             timestamp: new Date(),
           },
         ]);
-      } else if (showGenModal === 'video') {
-        const url = await generateVideoBackground(genPrompt, genAspectRatio);
-        setState((prev) => ({
-          ...prev,
-          backgroundAsset: { type: 'video', url, prompt: genPrompt },
-        }));
+        setShowGenModal(null);
+        setGenPrompt('');
+      }
+    } catch (err) {
+      if (!isAbortError(err)) {
+        console.error(err);
         setChatMessages((prev) => [
           ...prev,
-          {
-            role: 'model',
-            text: `Generated background video: "${genPrompt}"`,
-            timestamp: new Date(),
-          },
+          { role: 'model', text: 'Failed to generate. Please try again.', timestamp: new Date() },
         ]);
       }
-      setShowGenModal(null);
-      setGenPrompt('');
-    } catch (err) {
-      console.error(err);
-      setChatMessages((prev) => [
-        ...prev,
-        { role: 'model', text: 'Failed to generate. Please try again.', timestamp: new Date() },
-      ]);
     } finally {
       setIsGenerating(false);
     }
-  };
+  }, [genPrompt, showGenModal, state.aspectRatio, targetSize, genAspectRatio, backgroundRequest]);
 
   // Export video - automated flow
   const exportProgressIntervalRef = useRef<number | null>(null);
@@ -762,6 +1142,16 @@ const App = () => {
 
   const startExport = () => {
     if (!canvasRef.current || !mediaStreamDestRef.current || !audioElementRef.current) return;
+
+    // Clear any existing export state to prevent memory leaks from repeated exports
+    if (exportProgressIntervalRef.current) {
+      clearInterval(exportProgressIntervalRef.current);
+      exportProgressIntervalRef.current = null;
+    }
+    if (audioEndedHandlerRef.current && audioElementRef.current) {
+      audioElementRef.current.removeEventListener('ended', audioEndedHandlerRef.current);
+      audioEndedHandlerRef.current = null;
+    }
 
     const audio = audioElementRef.current;
     const duration = audio.duration;
@@ -907,12 +1297,7 @@ const App = () => {
     }, 250);
   };
 
-  // Format time as MM:SS
-  const formatTime = (seconds: number): string => {
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
+  // formatTime imported from src/utils/time
 
   // Helper function to download a blob
   const downloadBlob = (blob: Blob, filename: string) => {
@@ -1040,7 +1425,7 @@ const App = () => {
   };
 
   // Handle lyric sync with precision
-  const handleLyricSync = async () => {
+  const handleLyricSync = useCallback(async () => {
     if (!state.audioFile) {
       setChatMessages((prev) => [
         ...prev,
@@ -1052,43 +1437,58 @@ const App = () => {
     setState((prev) => ({ ...prev, isSyncing: true, syncProgress: 0 }));
 
     try {
-      const result = await syncLyricsWithPrecision(
-        state.audioFile,
-        {
-          precision: state.syncPrecision,
-          userLyrics: state.userProvidedLyrics || undefined,
-        },
-        (progress) => {
-          setState((prev) => ({ ...prev, syncProgress: progress }));
-        }
-      );
+      const result = await syncRequest.execute(async (signal) => {
+        return syncLyricsWithPrecision(
+          state.audioFile!,
+          {
+            precision: state.syncPrecision,
+            userLyrics: state.userProvidedLyrics || undefined,
+          },
+          (progress) => {
+            setState((prev) => ({ ...prev, syncProgress: progress }));
+          },
+          signal
+        );
+      });
 
-      setState((prev) => ({
-        ...prev,
-        lyrics: result.lyrics,
-        metadata: result.metadata,
-        lastSyncConfidence: result.overallConfidence,
-        isSyncing: false,
-        syncProgress: 100,
-      }));
+      if (result) {
+        setState((prev) => ({
+          ...prev,
+          lyrics: result.lyrics,
+          metadata: result.metadata,
+          lastSyncConfidence: result.overallConfidence,
+          isSyncing: false,
+          syncProgress: 100,
+        }));
 
-      setChatMessages((prev) => [
-        ...prev,
-        {
-          role: 'model',
-          text: `Lyrics synced with ${state.syncPrecision}-level precision! Confidence: ${Math.round(result.overallConfidence * 100)}%. ${result.processingTimeMs ? `(${(result.processingTimeMs / 1000).toFixed(1)}s)` : ''}`,
-          timestamp: new Date(),
-        },
-      ]);
+        setChatMessages((prev) => [
+          ...prev,
+          {
+            role: 'model',
+            text: `Lyrics synced with ${state.syncPrecision}-level precision! Confidence: ${Math.round(result.overallConfidence * 100)}%. ${result.processingTimeMs ? `(${(result.processingTimeMs / 1000).toFixed(1)}s)` : ''}`,
+            timestamp: new Date(),
+          },
+        ]);
+      } else {
+        setState((prev) => ({ ...prev, isSyncing: false, syncProgress: 0 }));
+      }
     } catch (err) {
-      console.error('Sync failed:', err);
-      setState((prev) => ({ ...prev, isSyncing: false, syncProgress: 0 }));
-      setChatMessages((prev) => [
-        ...prev,
-        { role: 'model', text: 'Failed to sync lyrics. Please try again.', timestamp: new Date() },
-      ]);
+      if (!isAbortError(err)) {
+        console.error('Sync failed:', err);
+        setState((prev) => ({ ...prev, isSyncing: false, syncProgress: 0 }));
+        setChatMessages((prev) => [
+          ...prev,
+          {
+            role: 'model',
+            text: 'Failed to sync lyrics. Please try again.',
+            timestamp: new Date(),
+          },
+        ]);
+      } else {
+        setState((prev) => ({ ...prev, isSyncing: false, syncProgress: 0 }));
+      }
     }
-  };
+  }, [state.audioFile, state.syncPrecision, state.userProvidedLyrics, syncRequest]);
 
   // Handle lyric update from WaveformEditor
   const handleLyricUpdate = (index: number, updates: Partial<LyricLine>) => {
@@ -1100,38 +1500,53 @@ const App = () => {
 
   // --- Video Plan Handlers ---
 
-  const handleRegeneratePlan = async () => {
+  const handleRegeneratePlan = useCallback(async () => {
     if (!state.audioFile) return;
 
     setIsGeneratingPlan(true);
-    try {
-      const plan = await aiOrchestrator.generateFullVideoPlan(
-        state.audioFile,
-        state.userProvidedLyrics,
-        state.userCreativeVision,
-        state.aspectRatio,
-        (status) => {
-          setChatMessages((prev) => [
-            ...prev,
-            { role: 'model', text: status, timestamp: new Date() },
-          ]);
-        }
-      );
 
-      if (videoPlan) {
-        setVideoPlanHistory((prev) => [...prev, videoPlan]);
+    try {
+      const plan = await planRequest.execute(async (signal) => {
+        return aiOrchestrator.generateFullVideoPlan(
+          state.audioFile!,
+          state.userProvidedLyrics,
+          state.userCreativeVision,
+          state.aspectRatio,
+          (status) => {
+            setChatMessages((prev) => [
+              ...prev,
+              { role: 'model', text: status, timestamp: new Date() },
+            ]);
+          },
+          signal
+        );
+      });
+
+      if (plan) {
+        if (videoPlan) {
+          setVideoPlanHistory((prev) => [...prev, videoPlan]);
+        }
+        setVideoPlan(plan);
       }
-      setVideoPlan(plan);
     } catch (err) {
-      console.error('Failed to regenerate plan:', err);
-      setChatMessages((prev) => [
-        ...prev,
-        { role: 'model', text: 'Failed to regenerate video plan.', timestamp: new Date() },
-      ]);
+      if (!isAbortError(err)) {
+        console.error('Failed to regenerate plan:', err);
+        setChatMessages((prev) => [
+          ...prev,
+          { role: 'model', text: 'Failed to regenerate video plan.', timestamp: new Date() },
+        ]);
+      }
     } finally {
       setIsGeneratingPlan(false);
     }
-  };
+  }, [
+    state.audioFile,
+    state.userProvidedLyrics,
+    state.userCreativeVision,
+    state.aspectRatio,
+    videoPlan,
+    planRequest,
+  ]);
 
   const handleApplyPlan = () => {
     if (!videoPlan) return;
@@ -1171,29 +1586,39 @@ const App = () => {
     ]);
   };
 
-  const handleModifyPlanViaChat = async (instruction: string) => {
-    if (!videoPlan) return;
+  const handleModifyPlanViaChat = useCallback(
+    async (instruction: string) => {
+      if (!videoPlan) return;
 
-    try {
-      const modifiedPlan = await modifyVideoPlan(videoPlan, instruction);
-      setVideoPlanHistory((prev) => [...prev, videoPlan]);
-      setVideoPlan(modifiedPlan);
-      setChatMessages((prev) => [
-        ...prev,
-        { role: 'model', text: `Plan updated: ${modifiedPlan.summary}`, timestamp: new Date() },
-      ]);
-    } catch (err) {
-      console.error('Failed to modify plan:', err);
-      setChatMessages((prev) => [
-        ...prev,
-        {
-          role: 'model',
-          text: 'Failed to modify the plan. Please try again.',
-          timestamp: new Date(),
-        },
-      ]);
-    }
-  };
+      try {
+        const modifiedPlan = await planModifyRequest.execute(async (signal) => {
+          return modifyVideoPlan(videoPlan, instruction, signal);
+        });
+
+        if (modifiedPlan) {
+          setVideoPlanHistory((prev) => [...prev, videoPlan]);
+          setVideoPlan(modifiedPlan);
+          setChatMessages((prev) => [
+            ...prev,
+            { role: 'model', text: `Plan updated: ${modifiedPlan.summary}`, timestamp: new Date() },
+          ]);
+        }
+      } catch (err) {
+        if (!isAbortError(err)) {
+          console.error('Failed to modify plan:', err);
+          setChatMessages((prev) => [
+            ...prev,
+            {
+              role: 'model',
+              text: 'Failed to modify the plan. Please try again.',
+              timestamp: new Date(),
+            },
+          ]);
+        }
+      }
+    },
+    [videoPlan, planModifyRequest]
+  );
 
   const handleMoodEdit = (mood: VideoPlanMood) => {
     if (!videoPlan) return;
@@ -1213,47 +1638,59 @@ const App = () => {
     setVideoPlan({ ...videoPlan, visualStyle, version: videoPlan.version + 1 });
   };
 
-  const handleRegeneratePeakVisual = async (peak: EmotionalPeak) => {
-    if (!videoPlan) return;
+  const handleRegeneratePeakVisual = useCallback(
+    async (peak: EmotionalPeak) => {
+      if (!videoPlan) return;
 
-    setRegeneratingPeakId(peak.id);
-    try {
-      const newVisual = await aiOrchestrator.regeneratePeakVisual(
-        peak,
-        state.lyrics,
-        videoPlan,
-        state.aspectRatio
-      );
+      setRegeneratingPeakId(peak.id);
+      try {
+        const newVisual = await peakVisualRequest.execute(async (signal) => {
+          return aiOrchestrator.regeneratePeakVisual(
+            peak,
+            state.lyrics,
+            videoPlan,
+            state.aspectRatio,
+            signal
+          );
+        });
 
-      setVideoPlan((prev) => {
-        if (!prev) return prev;
-        const existingIndex = prev.hybridVisuals.peakVisuals.findIndex((v) => v.peakId === peak.id);
-        const newPeakVisuals = [...prev.hybridVisuals.peakVisuals];
+        if (newVisual) {
+          setVideoPlan((prev) => {
+            if (!prev) return prev;
+            const existingIndex = prev.hybridVisuals.peakVisuals.findIndex(
+              (v) => v.peakId === peak.id
+            );
+            const newPeakVisuals = [...prev.hybridVisuals.peakVisuals];
 
-        if (existingIndex >= 0) {
-          newPeakVisuals[existingIndex] = newVisual;
-        } else {
-          newPeakVisuals.push(newVisual);
+            if (existingIndex >= 0) {
+              newPeakVisuals[existingIndex] = newVisual;
+            } else {
+              newPeakVisuals.push(newVisual);
+            }
+
+            return {
+              ...prev,
+              hybridVisuals: { ...prev.hybridVisuals, peakVisuals: newPeakVisuals },
+            };
+          });
         }
-
-        return {
-          ...prev,
-          hybridVisuals: { ...prev.hybridVisuals, peakVisuals: newPeakVisuals },
-        };
-      });
-    } catch (err) {
-      console.error('Failed to regenerate peak visual:', err);
-      setChatMessages((prev) => [
-        ...prev,
-        { role: 'model', text: 'Failed to generate peak visual.', timestamp: new Date() },
-      ]);
-    } finally {
-      setRegeneratingPeakId(null);
-    }
-  };
+      } catch (err) {
+        if (!isAbortError(err)) {
+          console.error('Failed to regenerate peak visual:', err);
+          setChatMessages((prev) => [
+            ...prev,
+            { role: 'model', text: 'Failed to generate peak visual.', timestamp: new Date() },
+          ]);
+        }
+      } finally {
+        setRegeneratingPeakId(null);
+      }
+    },
+    [videoPlan, state.lyrics, state.aspectRatio, peakVisualRequest]
+  );
 
   // Handle background type toggle (video ↔ image)
-  const handleBackgroundToggle = async () => {
+  const handleBackgroundToggle = useCallback(async () => {
     if (!videoPlan || !state.audioFile) return;
 
     const newUseVideo = !videoPlan.backgroundStrategy.useVideo;
@@ -1270,162 +1707,185 @@ const App = () => {
       };
 
       // Generate new background
-      let newBackground = null;
-      if (newUseVideo && videoPlan.backgroundStrategy.videoPrompt) {
-        const videoUrl = await generateVideoBackground(
-          videoPlan.backgroundStrategy.videoPrompt,
-          state.aspectRatio === '9:16' ? '9:16' : '16:9'
-        );
-        newBackground = {
-          type: 'video' as const,
-          url: videoUrl,
-          prompt: videoPlan.backgroundStrategy.videoPrompt,
-        };
-      } else if (!newUseVideo && videoPlan.backgroundStrategy.imagePrompt) {
-        const imageUrl = await generateBackground(
-          videoPlan.backgroundStrategy.imagePrompt,
-          state.aspectRatio,
-          '2K'
-        );
-        newBackground = {
-          type: 'image' as const,
-          url: imageUrl,
-          prompt: videoPlan.backgroundStrategy.imagePrompt,
-        };
-      }
-
-      setVideoPlan((prev) => {
-        if (!prev) return prev;
-        return {
-          ...prev,
-          backgroundStrategy: newStrategy,
-          hybridVisuals: { ...prev.hybridVisuals, sharedBackground: newBackground },
-        };
+      const newBackground = await backgroundRequest.execute(async (signal) => {
+        if (newUseVideo && videoPlan.backgroundStrategy.videoPrompt) {
+          const videoUrl = await generateVideoBackground(
+            videoPlan.backgroundStrategy.videoPrompt,
+            state.aspectRatio === '9:16' ? '9:16' : '16:9',
+            signal
+          );
+          return {
+            type: 'video' as const,
+            url: videoUrl,
+            prompt: videoPlan.backgroundStrategy.videoPrompt,
+          };
+        } else if (!newUseVideo && videoPlan.backgroundStrategy.imagePrompt) {
+          const imageUrl = await generateBackground(
+            videoPlan.backgroundStrategy.imagePrompt,
+            state.aspectRatio,
+            '2K',
+            signal
+          );
+          return {
+            type: 'image' as const,
+            url: imageUrl,
+            prompt: videoPlan.backgroundStrategy.imagePrompt,
+          };
+        }
+        return null;
       });
+
+      if (newBackground) {
+        setVideoPlan((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            backgroundStrategy: newStrategy,
+            hybridVisuals: { ...prev.hybridVisuals, sharedBackground: newBackground },
+          };
+        });
+      }
     } catch (err) {
-      console.error('Failed to toggle background:', err);
-      setChatMessages((prev) => [
-        ...prev,
-        { role: 'model', text: 'Failed to generate new background.', timestamp: new Date() },
-      ]);
+      if (!isAbortError(err)) {
+        console.error('Failed to toggle background:', err);
+        setChatMessages((prev) => [
+          ...prev,
+          { role: 'model', text: 'Failed to generate new background.', timestamp: new Date() },
+        ]);
+      }
     } finally {
       setIsRegeneratingBackground(false);
     }
-  };
+  }, [videoPlan, state.audioFile, state.aspectRatio, backgroundRequest]);
 
   // Handle background regeneration
-  const handleBackgroundRegenerate = async () => {
+  const handleBackgroundRegenerate = useCallback(async () => {
     if (!videoPlan || !state.audioFile) return;
 
     setIsRegeneratingBackground(true);
 
     try {
-      let newBackground = null;
-      if (videoPlan.backgroundStrategy.useVideo && videoPlan.backgroundStrategy.videoPrompt) {
-        const videoUrl = await generateVideoBackground(
-          videoPlan.backgroundStrategy.videoPrompt,
-          state.aspectRatio === '9:16' ? '9:16' : '16:9'
-        );
-        newBackground = {
-          type: 'video' as const,
-          url: videoUrl,
-          prompt: videoPlan.backgroundStrategy.videoPrompt,
-        };
-      } else if (
-        !videoPlan.backgroundStrategy.useVideo &&
-        videoPlan.backgroundStrategy.imagePrompt
-      ) {
-        const imageUrl = await generateBackground(
-          videoPlan.backgroundStrategy.imagePrompt,
-          state.aspectRatio,
-          '2K'
-        );
-        newBackground = {
-          type: 'image' as const,
-          url: imageUrl,
-          prompt: videoPlan.backgroundStrategy.imagePrompt,
-        };
-      }
-
-      setVideoPlan((prev) => {
-        if (!prev) return prev;
-        return {
-          ...prev,
-          hybridVisuals: { ...prev.hybridVisuals, sharedBackground: newBackground },
-        };
+      const newBackground = await backgroundRequest.execute(async (signal) => {
+        if (videoPlan.backgroundStrategy.useVideo && videoPlan.backgroundStrategy.videoPrompt) {
+          const videoUrl = await generateVideoBackground(
+            videoPlan.backgroundStrategy.videoPrompt,
+            state.aspectRatio === '9:16' ? '9:16' : '16:9',
+            signal
+          );
+          return {
+            type: 'video' as const,
+            url: videoUrl,
+            prompt: videoPlan.backgroundStrategy.videoPrompt,
+          };
+        } else if (
+          !videoPlan.backgroundStrategy.useVideo &&
+          videoPlan.backgroundStrategy.imagePrompt
+        ) {
+          const imageUrl = await generateBackground(
+            videoPlan.backgroundStrategy.imagePrompt,
+            state.aspectRatio,
+            '2K',
+            signal
+          );
+          return {
+            type: 'image' as const,
+            url: imageUrl,
+            prompt: videoPlan.backgroundStrategy.imagePrompt,
+          };
+        }
+        return null;
       });
+
+      if (newBackground) {
+        setVideoPlan((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            hybridVisuals: { ...prev.hybridVisuals, sharedBackground: newBackground },
+          };
+        });
+      }
     } catch (err) {
-      console.error('Failed to regenerate background:', err);
-      setChatMessages((prev) => [
-        ...prev,
-        { role: 'model', text: 'Failed to regenerate background.', timestamp: new Date() },
-      ]);
+      if (!isAbortError(err)) {
+        console.error('Failed to regenerate background:', err);
+        setChatMessages((prev) => [
+          ...prev,
+          { role: 'model', text: 'Failed to regenerate background.', timestamp: new Date() },
+        ]);
+      }
     } finally {
       setIsRegeneratingBackground(false);
     }
-  };
+  }, [videoPlan, state.audioFile, state.aspectRatio, backgroundRequest]);
 
   // Handle chat submit - extracted for reuse
-  const handleChatSubmit = async () => {
+  const handleChatSubmit = useCallback(async () => {
     if (!chatInput.trim()) return;
-    const userMsg = { role: 'user' as const, text: chatInput, timestamp: new Date() };
+    const userMessage = chatInput;
+    const userMsg = { role: 'user' as const, text: userMessage, timestamp: new Date() };
     setChatMessages((prev) => [...prev, userMsg]);
     setChatInput('');
     setIsProcessing(true);
 
     try {
-      const history = chatMessages.map((m) => ({
-        role: m.role,
-        parts: [{ text: m.text }],
-      }));
-      const response = await sendChatMessage(history, chatInput);
+      const response = await chatRequest.execute(async (signal) => {
+        const history = chatMessages.map((m) => ({
+          role: m.role,
+          parts: [{ text: m.text }],
+        }));
+        return sendChatMessage(history, userMessage, signal);
+      });
 
-      if (response.text) {
-        setChatMessages((prev) => [
-          ...prev,
-          { role: 'model', text: response.text || '', timestamp: new Date() },
-        ]);
-      }
+      if (response) {
+        if (response.text) {
+          setChatMessages((prev) => [
+            ...prev,
+            { role: 'model', text: response.text || '', timestamp: new Date() },
+          ]);
+        }
 
-      // Handle function calls
-      if (response.functionCalls) {
-        for (const call of response.functionCalls) {
-          if (call.name === 'generateBackgroundImage') {
-            const args = call.args as Record<string, unknown>;
-            setChatMessages((prev) => [
-              ...prev,
-              {
-                role: 'model',
-                text: `Generating background image: ${args.prompt}...`,
-                timestamp: new Date(),
-              },
-            ]);
-            const url = await generateBackground(
-              args.prompt as string,
-              (args.aspectRatio as AspectRatio) || '16:9',
-              (args.resolution as ImageSize) || '1K'
-            );
-            setState((prev) => ({
-              ...prev,
-              backgroundAsset: { type: 'image', url, prompt: args.prompt as string },
-            }));
-            setChatMessages((prev) => [
-              ...prev,
-              { role: 'model', text: `Background generated!`, timestamp: new Date() },
-            ]);
+        // Handle function calls
+        if (response.functionCalls) {
+          for (const call of response.functionCalls) {
+            if (call.name === 'generateBackgroundImage') {
+              const args = call.args as Record<string, unknown>;
+              setChatMessages((prev) => [
+                ...prev,
+                {
+                  role: 'model',
+                  text: `Generating background image: ${args.prompt}...`,
+                  timestamp: new Date(),
+                },
+              ]);
+              const url = await generateBackground(
+                args.prompt as string,
+                (args.aspectRatio as AspectRatio) || '16:9',
+                (args.resolution as ImageSize) || '1K'
+              );
+              setState((prev) => ({
+                ...prev,
+                backgroundAsset: { type: 'image', url, prompt: args.prompt as string },
+              }));
+              setChatMessages((prev) => [
+                ...prev,
+                { role: 'model', text: `Background generated!`, timestamp: new Date() },
+              ]);
+            }
           }
         }
       }
     } catch (err) {
-      console.error(err);
-      setChatMessages((prev) => [
-        ...prev,
-        { role: 'model', text: 'Sorry, I encountered an error.', timestamp: new Date() },
-      ]);
+      if (!isAbortError(err)) {
+        console.error(err);
+        setChatMessages((prev) => [
+          ...prev,
+          { role: 'model', text: 'Sorry, I encountered an error.', timestamp: new Date() },
+        ]);
+      }
     } finally {
       setIsProcessing(false);
     }
-  };
+  }, [chatInput, chatMessages, chatRequest]);
 
   // Track audio duration
   useEffect(() => {
@@ -2339,7 +2799,12 @@ const App = () => {
                                           <select
                                             value={kf.easing || 'linear'}
                                             onChange={(e) =>
-                                              updateKeyframe(idx, kfIdx, 'easing', e.target.value)
+                                              updateKeyframe(
+                                                idx,
+                                                kfIdx,
+                                                'easing',
+                                                e.target.value as EasingType
+                                              )
                                             }
                                             className="w-full bg-slate-800 border border-white/10 rounded px-1 py-0.5 text-slate-300"
                                           >
@@ -2819,7 +3284,7 @@ const App = () => {
                     if (response.functionCalls) {
                       for (const call of response.functionCalls) {
                         if (call.name === 'generateBackgroundImage') {
-                          const args = call.args as any;
+                          const args = call.args as unknown as GenerateBackgroundArgs;
                           setChatMessages((prev) => [
                             ...prev,
                             {

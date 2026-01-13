@@ -6,7 +6,7 @@
 import { LyricEffectContext } from '../../core/Effect';
 import { EffectParameter, slider, enumParam } from '../../core/ParameterTypes';
 import { CharacterLyricEffect } from '../LyricEffect';
-import { clamp, randomChoice } from '../../utils/MathUtils';
+import { clamp } from '../../utils/MathUtils';
 
 const SHUFFLE_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%&*';
 
@@ -29,10 +29,10 @@ export class LetterShuffleEffect extends CharacterLyricEffect {
   private lastLyricId: string = '';
 
   renderLyric(context: LyricEffectContext): void {
-    const { ctx, lyric, text, fontSize, fontFamily, color, progress, currentTime } = context;
+    const { ctx, lyric, text: _text, fontSize, fontFamily, color, progress, currentTime } = context;
     const characters = this.getCharacters(context);
 
-    const shuffleDuration = this.getParameter<number>('shuffleDuration');
+    const _shuffleDuration = this.getParameter<number>('shuffleDuration');
     const shuffleSpeed = this.getParameter<number>('shuffleSpeed');
     const revealOrderType = this.getParameter<string>('revealOrder');
     const glitchIntensity = this.getParameter<number>('glitchIntensity');

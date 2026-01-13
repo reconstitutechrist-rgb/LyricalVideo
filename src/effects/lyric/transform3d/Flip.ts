@@ -22,7 +22,7 @@ export class FlipEffect extends CharacterLyricEffect {
   ];
 
   renderLyric(context: LyricEffectContext): void {
-    const { ctx, lyric, text, fontSize, fontFamily, color, progress } = context;
+    const { ctx, lyric, text: _text, fontSize, fontFamily, color, progress } = context;
     const characters = this.getCharacters(context);
 
     const flipAxis = this.getParameter<string>('flipAxis');
@@ -31,7 +31,7 @@ export class FlipEffect extends CharacterLyricEffect {
     const stagger = this.getParameter<number>('stagger');
 
     const lyricDuration = lyric.endTime - lyric.startTime;
-    const totalDuration = stagger * characters.length + flipDuration;
+    const _totalDuration = stagger * characters.length + flipDuration;
 
     ctx.font = `bold ${fontSize}px "${fontFamily}"`;
     ctx.textAlign = 'left';

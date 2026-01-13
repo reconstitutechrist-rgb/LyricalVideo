@@ -174,7 +174,7 @@ export class ClassicalElegantEffect extends GenreBackgroundEffect {
     for (const p of this.particles) {
       // Gentle floating motion
       const noiseX = noise2D(p.x * 0.01, time * 0.2) * 2;
-      const noiseY = noise2D(p.y * 0.01, time * 0.2 + 100) * 2;
+      const _noiseY = noise2D(p.y * 0.01, time * 0.2 + 100) * 2;
 
       p.x += noiseX * p.speed;
       p.y -= p.speed * 0.3 + (average / 255) * p.speed;

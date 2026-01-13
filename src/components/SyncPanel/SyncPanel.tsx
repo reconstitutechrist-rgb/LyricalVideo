@@ -1,16 +1,19 @@
-import React from 'react';
+import React, { useCallback } from 'react';
 import { TimingPrecision } from '../../../types';
 import { MusicalNoteIcon, ClockIcon, SparklesIcon } from '@heroicons/react/24/outline';
+import { useLyricsStore } from '../../stores';
 
 interface SyncPanelProps {
-  precision: TimingPrecision;
-  onPrecisionChange: (precision: TimingPrecision) => void;
-  userLyrics: string;
-  onLyricsChange: (lyrics: string) => void;
+  // Optional props - will use lyrics store if not provided
+  precision?: TimingPrecision;
+  onPrecisionChange?: (precision: TimingPrecision) => void;
+  userLyrics?: string;
+  onLyricsChange?: (lyrics: string) => void;
+  isSyncing?: boolean;
+  syncProgress?: number;
+  lastSyncConfidence?: number | null;
+  // Required props
   onSync: () => Promise<void>;
-  isSyncing: boolean;
-  syncProgress: number;
-  lastSyncConfidence: number | null;
   disabled?: boolean;
 }
 
@@ -41,16 +44,47 @@ const PRECISION_OPTIONS: {
 ];
 
 export const SyncPanel: React.FC<SyncPanelProps> = ({
-  precision,
-  onPrecisionChange,
-  userLyrics,
-  onLyricsChange,
+  precision: precisionProp,
+  onPrecisionChange: onPrecisionChangeProp,
+  userLyrics: userLyricsProp,
+  onLyricsChange: onLyricsChangeProp,
   onSync,
-  isSyncing,
-  syncProgress,
-  lastSyncConfidence,
+  isSyncing: isSyncingProp,
+  syncProgress: syncProgressProp,
+  lastSyncConfidence: lastSyncConfidenceProp,
   disabled = false,
 }) => {
+  // Use lyrics store values with props as override
+  const lyricsStore = useLyricsStore();
+  const precision = precisionProp ?? lyricsStore.syncPrecision;
+  const userLyrics = userLyricsProp ?? lyricsStore.userProvidedLyrics;
+  const isSyncing = isSyncingProp ?? lyricsStore.isSyncing;
+  const syncProgress = syncProgressProp ?? lyricsStore.syncProgress;
+  const lastSyncConfidence = lastSyncConfidenceProp ?? lyricsStore.lastSyncConfidence;
+
+  // Use store actions if props not provided
+  const onPrecisionChange = useCallback(
+    (newPrecision: TimingPrecision) => {
+      if (onPrecisionChangeProp) {
+        onPrecisionChangeProp(newPrecision);
+      } else {
+        lyricsStore.setSyncPrecision(newPrecision);
+      }
+    },
+    [onPrecisionChangeProp, lyricsStore]
+  );
+
+  const onLyricsChange = useCallback(
+    (lyrics: string) => {
+      if (onLyricsChangeProp) {
+        onLyricsChangeProp(lyrics);
+      } else {
+        lyricsStore.setUserProvidedLyrics(lyrics);
+      }
+    },
+    [onLyricsChangeProp, lyricsStore]
+  );
+
   const handleSync = async () => {
     if (isSyncing || disabled) return;
     await onSync();

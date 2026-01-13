@@ -6,7 +6,7 @@
 import { EffectContext } from '../../core/Effect';
 import { EffectParameter, slider, boolean } from '../../core/ParameterTypes';
 import { GenreBackgroundEffect } from '../BackgroundEffect';
-import { random, clamp } from '../../utils/MathUtils';
+import { random } from '../../utils/MathUtils';
 
 interface Laser {
   startX: number;
@@ -110,7 +110,7 @@ export class ElectronicEDMEffect extends GenreBackgroundEffect {
     horizonY: number,
     intensity: number,
     bass: number,
-    time: number
+    _time: number
   ): void {
     const vanishX = width / 2;
     const gridSpeed = 50 + (bass / 255) * 100;
@@ -209,7 +209,7 @@ export class ElectronicEDMEffect extends GenreBackgroundEffect {
     height: number,
     density: number,
     audioData: { bass: number; mid: number; treble: number },
-    time: number
+    _time: number
   ): void {
     // Add new lasers based on audio
     if (audioData.treble > 150 && this.lasers.length < 10 * density && Math.random() > 0.7) {

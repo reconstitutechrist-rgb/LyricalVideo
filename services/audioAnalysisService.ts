@@ -3,6 +3,12 @@
  * Provides waveform generation and audio analysis utilities for the lyric sync system.
  */
 
+// Re-export time utilities for backwards compatibility
+// (components that already import from here will continue to work)
+export { formatTime, parseTime } from '../src/utils/time';
+
+import { generateWaveformDataAsync, supportsWebWorker } from '../src/utils/waveformWorkerClient';
+
 export interface WaveformData {
   peaks: Float32Array;
   duration: number;
@@ -19,6 +25,7 @@ export interface WaveformOptions {
 /**
  * Generate waveform peak data for visualization
  * Downsamples audio to a manageable number of peaks for canvas rendering
+ * Uses Web Worker for non-blocking processing when available
  */
 export const generateWaveformData = async (
   audioBuffer: AudioBuffer,
@@ -29,6 +36,24 @@ export const generateWaveformData = async (
   const channelData = audioBuffer.getChannelData(
     Math.min(channel, audioBuffer.numberOfChannels - 1)
   );
+
+  // Use Web Worker if available for non-blocking processing
+  if (supportsWebWorker()) {
+    try {
+      const peaks = await generateWaveformDataAsync(channelData, targetWidth, normalize);
+      return {
+        peaks,
+        duration: audioBuffer.duration,
+        sampleRate: audioBuffer.sampleRate,
+        channelCount: audioBuffer.numberOfChannels,
+      };
+    } catch (e) {
+      console.warn('Web Worker failed, falling back to main thread:', e);
+      // Fall through to synchronous implementation
+    }
+  }
+
+  // Fallback: synchronous implementation on main thread
   const samplesPerPixel = Math.floor(channelData.length / targetWidth);
   const peaks = new Float32Array(targetWidth);
 
@@ -109,41 +134,14 @@ export const pixelToTime = (
   return ((pixel + scrollOffset) / (width * zoom)) * duration;
 };
 
-/**
- * Format time in seconds to MM:SS.ms format
- */
-export const formatTime = (seconds: number, showMs: boolean = true): string => {
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.floor(seconds % 60);
-  const ms = Math.floor((seconds % 1) * 100);
-
-  if (showMs) {
-    return `${mins}:${secs.toString().padStart(2, '0')}.${ms.toString().padStart(2, '0')}`;
-  }
-  return `${mins}:${secs.toString().padStart(2, '0')}`;
-};
-
-/**
- * Parse time string (MM:SS or MM:SS.ms) to seconds
- */
-export const parseTime = (timeStr: string): number => {
-  const parts = timeStr.split(':');
-  if (parts.length !== 2) return 0;
-
-  const mins = parseInt(parts[0], 10) || 0;
-  const secParts = parts[1].split('.');
-  const secs = parseInt(secParts[0], 10) || 0;
-  const ms = secParts[1] ? parseInt(secParts[1].padEnd(2, '0').slice(0, 2), 10) / 100 : 0;
-
-  return mins * 60 + secs + ms;
-};
+// formatTime and parseTime are now imported from src/utils/time.ts and re-exported above
 
 /**
  * Calculate appropriate time ruler intervals based on zoom level
  */
 export const getTimeRulerIntervals = (
   zoom: number,
-  duration: number
+  _duration: number
 ): { major: number; minor: number } => {
   // At zoom 1x, show major marks every 10 seconds, minor every 1 second
   // At higher zoom, show finer intervals

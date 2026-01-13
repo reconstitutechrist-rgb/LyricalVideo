@@ -29,8 +29,18 @@ export class WindDissolveEffect extends CharacterLyricEffect {
   private lastLyricId: string = '';
 
   renderLyric(context: LyricEffectContext): void {
-    const { ctx, lyric, text, fontSize, fontFamily, color, progress, currentTime, width, height } =
-      context;
+    const {
+      ctx,
+      lyric,
+      text: _text,
+      fontSize,
+      fontFamily,
+      color,
+      progress,
+      currentTime,
+      width: _width,
+      height: _height,
+    } = context;
     const characters = this.getCharacters(context);
 
     const windDirection = degToRad(this.getParameter<number>('windDirection'));

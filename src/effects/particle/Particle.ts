@@ -4,7 +4,6 @@
  */
 
 import { ColorPalette } from '../../../types';
-import { getRandomPaletteColor } from '../utils/CanvasUtils';
 
 /**
  * Individual particle for visual effects
@@ -18,6 +17,8 @@ export class Particle {
   speedY: number;
   color: string;
   history: { x: number; y: number }[];
+  historyIndex: number; // Circular buffer write index
+  historyLength: number; // Current number of valid entries in history
   life: number;
   maxLife: number;
   opacity: number;
@@ -33,6 +34,8 @@ export class Particle {
     this.speedY = (Math.random() - 0.5) * 2;
     this.color = this.getColor(palette);
     this.history = [];
+    this.historyIndex = 0;
+    this.historyLength = 0;
     this.life = 1;
     this.maxLife = 1;
     this.opacity = 1;
@@ -84,25 +87,55 @@ export class Particle {
     this.rotation += this.rotationSpeed;
 
     if (trailsEnabled) {
-      this.history.push({ x: this.x, y: this.y });
       const limit = Math.floor(5 + 15 * intensity * speedMult);
-      while (this.history.length > limit) {
-        this.history.shift();
+
+      // Ensure history array is sized appropriately
+      if (this.history.length < limit) {
+        // Grow array if needed
+        this.history.push({ x: this.x, y: this.y });
+        this.historyLength = this.history.length;
+      } else {
+        // Use circular buffer - O(1) instead of O(n) shift()
+        const idx = this.historyIndex % limit;
+        this.history[idx] = { x: this.x, y: this.y };
+        this.historyIndex++;
+        this.historyLength = Math.min(this.historyLength + 1, limit);
+
+        // Trim array if limit decreased
+        if (this.history.length > limit) {
+          this.history.length = limit;
+          this.historyIndex = 0;
+          this.historyLength = limit;
+        }
       }
     } else {
       this.history = [];
+      this.historyIndex = 0;
+      this.historyLength = 0;
     }
   }
 
   draw(ctx: CanvasRenderingContext2D, trailsEnabled: boolean) {
     ctx.globalAlpha = this.opacity * this.life;
 
-    if (trailsEnabled && this.history.length > 0) {
+    if (trailsEnabled && this.historyLength > 0) {
       ctx.beginPath();
-      ctx.moveTo(this.history[0].x, this.history[0].y);
-      for (const point of this.history) {
+
+      // Iterate circular buffer from oldest to newest
+      const len = this.history.length;
+      const startIdx = (this.historyIndex - this.historyLength + len) % len;
+
+      // Move to the oldest point
+      const firstPoint = this.history[startIdx];
+      ctx.moveTo(firstPoint.x, firstPoint.y);
+
+      // Draw lines through all history points in order
+      for (let i = 1; i < this.historyLength; i++) {
+        const idx = (startIdx + i) % len;
+        const point = this.history[idx];
         ctx.lineTo(point.x, point.y);
       }
+
       ctx.lineTo(this.x, this.y);
       ctx.strokeStyle = this.color;
       ctx.lineWidth = this.size / 2;
@@ -125,6 +158,8 @@ export class Particle {
     this.y = y;
     this.color = this.getColor(palette);
     this.history = [];
+    this.historyIndex = 0;
+    this.historyLength = 0;
     this.life = 1;
     this.opacity = 1;
   }

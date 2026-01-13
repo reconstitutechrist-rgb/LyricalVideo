@@ -6,37 +6,67 @@ import {
   MagnifyingGlassMinusIcon,
 } from '@heroicons/react/24/solid';
 import { LyricLine, TextKeyframe } from '../../../types';
+import { formatTime } from '../../utils/time';
 import { KeyframeTrack } from './KeyframeTrack';
 import { KeyframeEditor } from './KeyframeEditor';
+import { useAudioStore } from '../../stores';
 
 interface TimelineProps {
-  duration: number; // Total duration in seconds
-  currentTime: number;
-  onSeek: (time: number) => void;
-  isPlaying: boolean;
-  onPlayPause: () => void;
+  // Audio props - optional, will use audio store if not provided
+  duration?: number;
+  currentTime?: number;
+  onSeek?: (time: number) => void;
+  isPlaying?: boolean;
+  onPlayPause?: () => void;
+  // Required props
   lyrics: LyricLine[];
   onLyricKeyframesChange: (lyricIndex: number, keyframes: TextKeyframe[]) => void;
   selectedLyricIndex: number | null;
   onSelectLyric: (index: number | null) => void;
 }
 
-const TIME_RULER_HEIGHT = 24;
-const TRACK_HEIGHT = 40;
+const _TIME_RULER_HEIGHT = 24;
+const _TRACK_HEIGHT = 40;
 const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 4;
 
 export const Timeline: React.FC<TimelineProps> = ({
-  duration,
-  currentTime,
-  onSeek,
-  isPlaying,
-  onPlayPause,
+  duration: durationProp,
+  currentTime: currentTimeProp,
+  onSeek: onSeekProp,
+  isPlaying: isPlayingProp,
+  onPlayPause: onPlayPauseProp,
   lyrics,
   onLyricKeyframesChange,
   selectedLyricIndex,
   onSelectLyric,
 }) => {
+  // Use audio store values with props as override
+  const audioStore = useAudioStore();
+  const duration = durationProp ?? audioStore.duration;
+  const currentTime = currentTimeProp ?? audioStore.currentTime;
+  const isPlaying = isPlayingProp ?? audioStore.isPlaying;
+
+  // Use store actions if props not provided
+  const onSeek = useCallback(
+    (time: number) => {
+      if (onSeekProp) {
+        onSeekProp(time);
+      } else {
+        audioStore.seek(time);
+      }
+    },
+    [onSeekProp, audioStore]
+  );
+
+  const onPlayPause = useCallback(() => {
+    if (onPlayPauseProp) {
+      onPlayPauseProp();
+    } else {
+      audioStore.togglePlay();
+    }
+  }, [onPlayPauseProp, audioStore]);
+
   const containerRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(1);
@@ -120,13 +150,7 @@ export const Timeline: React.FC<TimelineProps> = ({
   const handleZoomIn = () => setZoom((z) => Math.min(MAX_ZOOM, z * 1.5));
   const handleZoomOut = () => setZoom((z) => Math.max(MIN_ZOOM, z / 1.5));
 
-  // Format time for display
-  const formatTime = (time: number): string => {
-    const minutes = Math.floor(time / 60);
-    const seconds = Math.floor(time % 60);
-    const ms = Math.floor((time % 1) * 100);
-    return `${minutes}:${seconds.toString().padStart(2, '0')}.${ms.toString().padStart(2, '0')}`;
-  };
+  // formatTime imported from utils/time (with showMs=true for precision display)
 
   // Get selected lyric and keyframe
   const selectedLyric = selectedLyricIndex !== null ? lyrics[selectedLyricIndex] : null;
@@ -150,8 +174,8 @@ export const Timeline: React.FC<TimelineProps> = ({
 
           {/* Current Time */}
           <div className="text-sm font-mono text-gray-300">
-            {formatTime(currentTime)}
-            <span className="text-gray-600"> / {formatTime(duration)}</span>
+            {formatTime(currentTime, true)}
+            <span className="text-gray-600"> / {formatTime(duration, true)}</span>
           </div>
         </div>
 

@@ -1,15 +1,17 @@
 import { LyricLine, TimingPrecision } from '../../../types';
 
 export interface WaveformEditorProps {
-  audioBuffer: AudioBuffer | null;
-  duration: number;
-  currentTime: number;
-  onSeek: (time: number) => void;
+  // Audio props - optional, will use audio store if not provided
+  audioBuffer?: AudioBuffer | null;
+  duration?: number;
+  currentTime?: number;
+  isPlaying?: boolean;
+  onSeek?: (time: number) => void;
+  onPlayPause?: () => void;
+  // Lyrics props - required
   lyrics: LyricLine[];
   onLyricUpdate: (index: number, updates: Partial<LyricLine>) => void;
   syncPrecision: TimingPrecision;
-  isPlaying: boolean;
-  onPlayPause: () => void;
   selectedLyricIndex: number | null;
   onSelectLyric: (index: number | null) => void;
 }

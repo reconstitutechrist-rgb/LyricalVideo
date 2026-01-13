@@ -28,7 +28,12 @@ export class BeatDetector {
    * Analyze audio frame and detect beats
    */
   analyze(frequencyData: Uint8Array, currentTime: number): BeatData {
-    // Guard against empty data
+    // Guard against invalid currentTime
+    if (!Number.isFinite(currentTime) || currentTime < 0) {
+      currentTime = 0;
+    }
+
+    // Guard against empty or invalid data
     if (!frequencyData || frequencyData.length === 0) {
       return {
         isBeat: false,
@@ -117,21 +122,37 @@ export class BeatDetector {
     flux: number,
     currentTime: number
   ): { isBeat: boolean; beatIntensity: number } {
+    // Guard against NaN flux values
+    if (!Number.isFinite(flux)) {
+      flux = 0;
+    }
+
     // Update adaptive threshold (exponential moving average)
     this.adaptiveThreshold = this.adaptiveThreshold * 0.95 + flux * 0.05;
+
+    // Guard against threshold going to invalid values
+    if (!Number.isFinite(this.adaptiveThreshold)) {
+      this.adaptiveThreshold = 0;
+    }
 
     // Threshold with minimum floor to avoid false positives in quiet sections
     const threshold = this.adaptiveThreshold * 1.5 + 0.05;
 
     // Require minimum time between beats (100ms = max 600 BPM)
-    const isBeat = flux > threshold && currentTime - this.lastBeatTime > 0.1;
+    // Handle first beat case when lastBeatTime is -1
+    const timeSinceLastBeat = this.lastBeatTime < 0 ? Infinity : currentTime - this.lastBeatTime;
+    const isBeat = flux > threshold && timeSinceLastBeat > 0.1;
 
     if (isBeat) {
       this.lastBeatTime = currentTime;
       this.onsetHistory.push(currentTime);
-      // Keep last 20 onsets for BPM calculation
-      if (this.onsetHistory.length > 20) {
+      // Keep last 20 onsets for BPM calculation - use while loop for safety
+      while (this.onsetHistory.length > 20) {
         this.onsetHistory.shift();
+      }
+      // Additional safety: hard cap at 50 entries if something goes wrong
+      if (this.onsetHistory.length > 50) {
+        this.onsetHistory = this.onsetHistory.slice(-20);
       }
     }
 
@@ -161,8 +182,13 @@ export class BeatDetector {
     // Valid BPM range: 30-300 (interval 0.2s - 2s)
     if (medianInterval > 0.2 && medianInterval < 2) {
       const bpm = 60 / medianInterval;
-      // Smooth BPM estimate to avoid jitter
-      this.bpmEstimate = this.bpmEstimate * 0.9 + bpm * 0.1;
+      // Guard against NaN/Infinity from calculation errors
+      if (Number.isFinite(bpm) && bpm >= 30 && bpm <= 300) {
+        // Smooth BPM estimate to avoid jitter
+        this.bpmEstimate = this.bpmEstimate * 0.9 + bpm * 0.1;
+        // Clamp final estimate to valid range
+        this.bpmEstimate = Math.max(30, Math.min(300, this.bpmEstimate));
+      }
     }
   }
 
@@ -203,9 +229,18 @@ export class BeatDetector {
    * Positive = building up, Negative = dropping
    */
   private calculateEnergyDelta(energy: number): number {
+    // Guard against NaN energy values
+    if (!Number.isFinite(energy)) {
+      energy = 0;
+    }
+
     this.energyHistory.push(energy);
-    if (this.energyHistory.length > 16) {
+    while (this.energyHistory.length > 16) {
       this.energyHistory.shift();
+    }
+    // Safety cap
+    if (this.energyHistory.length > 32) {
+      this.energyHistory = this.energyHistory.slice(-16);
     }
 
     // Need at least 8 samples to compare two non-overlapping windows

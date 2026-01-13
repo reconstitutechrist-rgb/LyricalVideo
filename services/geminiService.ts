@@ -20,8 +20,273 @@ import {
   SyncConfig,
   SyncResult,
   WordTiming,
-  SyllableTiming,
 } from '../types';
+
+// ============================================================================
+// RETRY LOGIC WITH EXPONENTIAL BACKOFF
+// ============================================================================
+
+interface RetryOptions {
+  maxRetries?: number;
+  baseDelayMs?: number;
+  maxDelayMs?: number;
+  retryableErrors?: string[];
+  /** AbortSignal for cancelling the request */
+  signal?: AbortSignal;
+}
+
+const DEFAULT_RETRY_OPTIONS: RetryOptions = {
+  maxRetries: 3,
+  baseDelayMs: 1000,
+  maxDelayMs: 10000,
+  retryableErrors: [
+    'RATE_LIMIT_EXCEEDED',
+    'RESOURCE_EXHAUSTED',
+    'UNAVAILABLE',
+    'DEADLINE_EXCEEDED',
+    '429',
+    '500',
+    '502',
+    '503',
+    '504',
+  ],
+};
+
+/**
+ * Check if an error is an abort error
+ */
+function isAbortError(error: unknown): boolean {
+  if (error instanceof DOMException && error.name === 'AbortError') {
+    return true;
+  }
+  if (error instanceof Error) {
+    return error.name === 'AbortError' || error.message.toLowerCase().includes('aborted');
+  }
+  return false;
+}
+
+/**
+ * Create an AbortError
+ */
+function createAbortError(message: string = 'Request aborted'): DOMException {
+  return new DOMException(message, 'AbortError');
+}
+
+/**
+ * Promise-based delay that can be aborted
+ */
+async function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(createAbortError());
+      return;
+    }
+
+    const timeoutId = setTimeout(resolve, ms);
+
+    const abortHandler = () => {
+      clearTimeout(timeoutId);
+      reject(createAbortError());
+    };
+
+    signal?.addEventListener('abort', abortHandler, { once: true });
+  });
+}
+
+/**
+ * Execute a function with retry logic and exponential backoff
+ * Supports AbortSignal for cancellation
+ */
+async function withRetry<T>(fn: () => Promise<T>, options: RetryOptions = {}): Promise<T> {
+  const opts = { ...DEFAULT_RETRY_OPTIONS, ...options };
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt <= (opts.maxRetries || 3); attempt++) {
+    // Check if aborted before each attempt
+    if (opts.signal?.aborted) {
+      throw createAbortError();
+    }
+
+    try {
+      return await fn();
+    } catch (error) {
+      // If aborted, don't retry - throw immediately
+      if (opts.signal?.aborted || isAbortError(error)) {
+        throw isAbortError(error) ? error : createAbortError();
+      }
+
+      lastError = error as Error;
+      const errorMessage = String(error);
+
+      // Check if error is retryable
+      const isRetryable = opts.retryableErrors?.some(
+        (retryable) =>
+          errorMessage.includes(retryable) || (error as { code?: string })?.code === retryable
+      );
+
+      if (!isRetryable || attempt === opts.maxRetries) {
+        throw error;
+      }
+
+      // Calculate delay with exponential backoff and jitter
+      const baseDelay = opts.baseDelayMs || 1000;
+      const maxDelay = opts.maxDelayMs || 10000;
+      const exponentialDelay = baseDelay * Math.pow(2, attempt);
+      const jitter = Math.random() * 0.3 * exponentialDelay;
+      const delay = Math.min(exponentialDelay + jitter, maxDelay);
+
+      console.warn(
+        `Gemini API call failed (attempt ${attempt + 1}/${opts.maxRetries! + 1}), retrying in ${Math.round(delay)}ms:`,
+        errorMessage.slice(0, 100)
+      );
+
+      // Use abortable delay so we can cancel during wait
+      await abortableDelay(delay, opts.signal);
+    }
+  }
+
+  throw lastError;
+}
+
+// ============================================================================
+// SIMPLE RESPONSE CACHE
+// ============================================================================
+
+interface CacheEntry<T> {
+  value: T;
+  timestamp: number;
+  expiresAt: number;
+}
+
+class ResponseCache {
+  private cache = new Map<string, CacheEntry<unknown>>();
+  private defaultTTL = 5 * 60 * 1000; // 5 minutes default TTL
+  private maxSize = 100;
+
+  /**
+   * Generate a cache key from function name and arguments
+   */
+  generateKey(fnName: string, args: unknown[]): string {
+    // For file arguments, use file name + size as key (not full content)
+    const keyArgs = args.map((arg) => {
+      if (arg instanceof File) {
+        return `file:${arg.name}:${arg.size}:${arg.lastModified}`;
+      }
+      if (typeof arg === 'object' && arg !== null) {
+        return JSON.stringify(arg);
+      }
+      return String(arg);
+    });
+    return `${fnName}:${keyArgs.join('|')}`;
+  }
+
+  get<T>(key: string): T | null {
+    const entry = this.cache.get(key) as CacheEntry<T> | undefined;
+    if (!entry) return null;
+
+    // Check if expired
+    if (Date.now() > entry.expiresAt) {
+      this.cache.delete(key);
+      return null;
+    }
+
+    return entry.value;
+  }
+
+  set<T>(key: string, value: T, ttlMs?: number): void {
+    // Evict oldest entries if cache is full
+    if (this.cache.size >= this.maxSize) {
+      const oldestKey = this.cache.keys().next().value;
+      if (oldestKey) {
+        this.cache.delete(oldestKey);
+      }
+    }
+
+    this.cache.set(key, {
+      value,
+      timestamp: Date.now(),
+      expiresAt: Date.now() + (ttlMs || this.defaultTTL),
+    });
+  }
+
+  clear(): void {
+    this.cache.clear();
+  }
+
+  /**
+   * Clear cache entries matching a pattern
+   */
+  clearPattern(pattern: string): void {
+    for (const key of this.cache.keys()) {
+      if (key.includes(pattern)) {
+        this.cache.delete(key);
+      }
+    }
+  }
+}
+
+// Singleton cache instance
+const geminiCache = new ResponseCache();
+
+/**
+ * Clear all Gemini API response cache
+ */
+export const clearGeminiCache = (): void => {
+  geminiCache.clear();
+};
+
+/**
+ * Clear cache for a specific function
+ */
+export const clearCacheForFunction = (fnName: string): void => {
+  geminiCache.clearPattern(fnName);
+};
+
+// ============================================================================
+// API RESPONSE TYPES FOR TYPE SAFETY
+// ============================================================================
+
+/** Response type for syllable-level timing from Gemini */
+interface GeminiSyllableResponse {
+  text: string;
+  startTime: number;
+  endTime: number;
+  phoneme?: string;
+}
+
+/** Response type for word-level timing from Gemini */
+interface GeminiWordResponse {
+  text: string;
+  startTime: number;
+  endTime: number;
+  confidence?: number;
+  syllables?: GeminiSyllableResponse[];
+}
+
+/** Response type for lyric line from Gemini */
+interface GeminiLyricResponse {
+  text: string;
+  startTime: number;
+  endTime: number;
+  section?: string;
+  sentimentColor?: string;
+  confidence?: number;
+  words?: GeminiWordResponse[];
+}
+
+/** Response type for song metadata from Gemini */
+interface GeminiMetadataResponse {
+  title?: string;
+  artist?: string;
+  genre?: string;
+  mood?: string;
+}
+
+/** Full analysis response from Gemini */
+interface _GeminiAnalysisResponse {
+  lyrics?: GeminiLyricResponse[];
+  metadata?: GeminiMetadataResponse;
+}
 
 // Helper to base64 encode
 const fileToBase64 = (file: File): Promise<string> => {
@@ -67,15 +332,20 @@ const generateBackgroundImageTool: FunctionDeclaration = {
   },
 };
 
-// 1. Transcribe & Analyze Audio (With optional user lyrics)
+// 1. Transcribe & Analyze Audio (With optional user lyrics) - with retry
 export const analyzeAudioAndGetLyrics = async (
   audioFile: File,
-  userLyrics?: string
+  userLyrics?: string,
+  signal?: AbortSignal
 ): Promise<{ lyrics: LyricLine[]; metadata: SongMetadata }> => {
-  const ai = await getAI();
-  const base64Audio = await fileToBase64(audioFile);
+  return withRetry(
+    async () => {
+      // Check abort before expensive file conversion
+      if (signal?.aborted) throw createAbortError();
+      const ai = await getAI();
+      const base64Audio = await fileToBase64(audioFile);
 
-  let promptText = `
+      let promptText = `
     Listen to this audio carefully. 
     1. Identify the Song Title, Artist, Genre, and Mood.
     2. Analyze the structure (Verse, Chorus, Bridge) and align lyrics with precise timestamps.
@@ -83,8 +353,8 @@ export const analyzeAudioAndGetLyrics = async (
     4. Return a JSON object.
   `;
 
-  if (userLyrics && userLyrics.trim().length > 0) {
-    promptText += `
+      if (userLyrics && userLyrics.trim().length > 0) {
+        promptText += `
       CRITICAL INSTRUCTION: The user has provided the official lyrics below. 
       Do NOT transcribe from scratch. Instead, ALIGN the provided text to the audio timestamps. 
       Ensure every line from the provided text is accounted for.
@@ -94,96 +364,103 @@ export const analyzeAudioAndGetLyrics = async (
       ${userLyrics}
       """
       `;
-  } else {
-    promptText += ` Transcribe the lyrics exactly as heard.`;
-  }
+      } else {
+        promptText += ` Transcribe the lyrics exactly as heard.`;
+      }
 
-  const responseSchema: Schema = {
-    type: Type.OBJECT,
-    properties: {
-      metadata: {
+      const responseSchema: Schema = {
         type: Type.OBJECT,
         properties: {
-          title: { type: Type.STRING },
-          artist: { type: Type.STRING },
-          genre: { type: Type.STRING },
-          mood: { type: Type.STRING },
-        },
-      },
-      lyrics: {
-        type: Type.ARRAY,
-        items: {
-          type: Type.OBJECT,
-          properties: {
-            text: { type: Type.STRING },
-            startTime: { type: Type.NUMBER },
-            endTime: { type: Type.NUMBER },
-            section: { type: Type.STRING, description: 'e.g., Verse 1, Chorus, Bridge' },
-            sentimentColor: {
-              type: Type.STRING,
-              description: "Hex color code matching the line's mood",
+          metadata: {
+            type: Type.OBJECT,
+            properties: {
+              title: { type: Type.STRING },
+              artist: { type: Type.STRING },
+              genre: { type: Type.STRING },
+              mood: { type: Type.STRING },
+            },
+          },
+          lyrics: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                text: { type: Type.STRING },
+                startTime: { type: Type.NUMBER },
+                endTime: { type: Type.NUMBER },
+                section: { type: Type.STRING, description: 'e.g., Verse 1, Chorus, Bridge' },
+                sentimentColor: {
+                  type: Type.STRING,
+                  description: "Hex color code matching the line's mood",
+                },
+              },
             },
           },
         },
-      },
+      };
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: {
+          parts: [
+            { inlineData: { mimeType: audioFile.type, data: base64Audio } },
+            { text: promptText },
+          ],
+        },
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: responseSchema,
+        },
+      });
+
+      const json = JSON.parse(response.text || '{}');
+
+      const lyrics =
+        json.lyrics?.map((l: GeminiLyricResponse, i: number) => ({
+          id: `line-${i}`,
+          text: l.text,
+          startTime: l.startTime,
+          endTime: l.endTime,
+          section: l.section,
+          sentimentColor: l.sentimentColor,
+        })) || [];
+
+      const metadata = json.metadata || {
+        title: 'Unknown',
+        artist: 'Unknown',
+        genre: 'Unknown',
+        mood: 'Neutral',
+      };
+
+      return { lyrics, metadata };
     },
-  };
-
-  const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
-    contents: {
-      parts: [
-        { inlineData: { mimeType: audioFile.type, data: base64Audio } },
-        { text: promptText },
-      ],
-    },
-    config: {
-      responseMimeType: 'application/json',
-      responseSchema: responseSchema,
-    },
-  });
-
-  const json = JSON.parse(response.text || '{}');
-
-  const lyrics =
-    json.lyrics?.map((l: any, i: number) => ({
-      id: `line-${i}`,
-      text: l.text,
-      startTime: l.startTime,
-      endTime: l.endTime,
-      section: l.section,
-      sentimentColor: l.sentimentColor,
-    })) || [];
-
-  const metadata = json.metadata || {
-    title: 'Unknown',
-    artist: 'Unknown',
-    genre: 'Unknown',
-    mood: 'Neutral',
-  };
-
-  return { lyrics, metadata };
+    { signal }
+  ); // end withRetry
 };
 
-// 1b. Sync Lyrics with Precision (Line/Word/Syllable level timing)
+// 1b. Sync Lyrics with Precision (Line/Word/Syllable level timing) - with retry
 export const syncLyricsWithPrecision = async (
   audioFile: File,
   config: SyncConfig,
-  onProgress?: (percent: number) => void
+  onProgress?: (percent: number) => void,
+  signal?: AbortSignal
 ): Promise<SyncResult> => {
   const startTime = Date.now();
-  const ai = await getAI();
-  const base64Audio = await fileToBase64(audioFile);
 
   onProgress?.(10);
 
-  const precisionInstructions: Record<TimingPrecision, string> = {
-    line: 'Provide start/end timestamps for each LINE of lyrics.',
-    word: `Provide timestamps for EACH WORD within each line. For each lyric line, include a "words" array where each word has: { text, startTime, endTime, confidence }. The confidence should be 0-1 based on how clearly the word is heard.`,
-    syllable: `Provide timestamps for each SYLLABLE of every word. For each lyric line, include a "words" array. Each word should have a "syllables" array with: { text, startTime, endTime, phoneme }. The phoneme is the IPA representation (optional).`,
-  };
+  return withRetry(
+    async () => {
+      const ai = await getAI();
+      const base64Audio = await fileToBase64(audioFile);
 
-  const promptText = `
+      const precisionInstructions: Record<TimingPrecision, string> = {
+        line: 'Provide start/end timestamps for each LINE of lyrics.',
+        word: `Provide timestamps for EACH WORD within each line. For each lyric line, include a "words" array where each word has: { text, startTime, endTime, confidence }. The confidence should be 0-1 based on how clearly the word is heard.`,
+        syllable: `Provide timestamps for each SYLLABLE of every word. For each lyric line, include a "words" array. Each word should have a "syllables" array with: { text, startTime, endTime, phoneme }. The phoneme is the IPA representation (optional).`,
+      };
+
+      const promptText = `
     Analyze this audio and synchronize lyrics with PRECISE timing.
 
     PRECISION LEVEL: ${config.precision.toUpperCase()}
@@ -210,94 +487,97 @@ export const syncLyricsWithPrecision = async (
     Assign a sentimentColor (hex code) matching each line's emotional tone.
   `;
 
-  // Build schema based on precision level
-  const responseSchema = buildPrecisionSchema(config.precision);
+      // Build schema based on precision level
+      const responseSchema = buildPrecisionSchema(config.precision);
 
-  onProgress?.(30);
+      onProgress?.(30);
 
-  const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
-    contents: {
-      parts: [
-        { inlineData: { mimeType: audioFile.type, data: base64Audio } },
-        { text: promptText },
-      ],
-    },
-    config: {
-      responseMimeType: 'application/json',
-      responseSchema: responseSchema,
-    },
-  });
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: {
+          parts: [
+            { inlineData: { mimeType: audioFile.type, data: base64Audio } },
+            { text: promptText },
+          ],
+        },
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: responseSchema,
+        },
+      });
 
-  onProgress?.(90);
+      onProgress?.(90);
 
-  const json = JSON.parse(response.text || '{}');
-  const processingTimeMs = Date.now() - startTime;
+      const json = JSON.parse(response.text || '{}');
+      const processingTimeMs = Date.now() - startTime;
 
-  // Parse and normalize the result
-  const lyrics: LyricLine[] =
-    json.lyrics?.map((l: any, i: number) => {
-      const line: LyricLine = {
-        id: `line-${i}`,
-        text: l.text,
-        startTime: l.startTime,
-        endTime: l.endTime,
-        section: l.section,
-        sentimentColor: l.sentimentColor,
-        syncPrecision: config.precision,
-        syncConfidence: l.confidence,
-      };
-
-      // Add word-level timing if available
-      if (l.words && config.precision !== 'line') {
-        line.words = l.words.map((w: any, wi: number) => {
-          const word: WordTiming = {
-            id: `word-${i}-${wi}`,
-            text: w.text,
-            startTime: w.startTime,
-            endTime: w.endTime,
-            confidence: w.confidence,
+      // Parse and normalize the result
+      const lyrics: LyricLine[] =
+        json.lyrics?.map((l: GeminiLyricResponse, i: number) => {
+          const line: LyricLine = {
+            id: `line-${i}`,
+            text: l.text,
+            startTime: l.startTime,
+            endTime: l.endTime,
+            section: l.section,
+            sentimentColor: l.sentimentColor,
+            syncPrecision: config.precision,
+            syncConfidence: l.confidence,
           };
 
-          // Add syllable-level timing if available
-          if (w.syllables && config.precision === 'syllable') {
-            word.syllables = w.syllables.map((s: any, si: number) => ({
-              id: `syl-${i}-${wi}-${si}`,
-              text: s.text,
-              startTime: s.startTime,
-              endTime: s.endTime,
-              phoneme: s.phoneme,
-            }));
+          // Add word-level timing if available
+          if (l.words && config.precision !== 'line') {
+            line.words = l.words.map((w: GeminiWordResponse, wi: number) => {
+              const word: WordTiming = {
+                id: `word-${i}-${wi}`,
+                text: w.text,
+                startTime: w.startTime,
+                endTime: w.endTime,
+                confidence: w.confidence,
+              };
+
+              // Add syllable-level timing if available
+              if (w.syllables && config.precision === 'syllable') {
+                word.syllables = w.syllables.map((s: GeminiSyllableResponse, si: number) => ({
+                  id: `syl-${i}-${wi}-${si}`,
+                  text: s.text,
+                  startTime: s.startTime,
+                  endTime: s.endTime,
+                  phoneme: s.phoneme,
+                }));
+              }
+
+              return word;
+            });
           }
 
-          return word;
-        });
-      }
+          return line;
+        }) || [];
 
-      return line;
-    }) || [];
+      const metadata: SongMetadata = json.metadata || {
+        title: 'Unknown',
+        artist: 'Unknown',
+        genre: 'Unknown',
+        mood: 'Neutral',
+      };
 
-  const metadata: SongMetadata = json.metadata || {
-    title: 'Unknown',
-    artist: 'Unknown',
-    genre: 'Unknown',
-    mood: 'Neutral',
-  };
+      // Calculate overall confidence
+      const confidences = lyrics.map((l) => l.syncConfidence || 0).filter((c) => c > 0);
+      const overallConfidence =
+        confidences.length > 0 ? confidences.reduce((a, b) => a + b, 0) / confidences.length : 0;
 
-  // Calculate overall confidence
-  const confidences = lyrics.map((l) => l.syncConfidence || 0).filter((c) => c > 0);
-  const overallConfidence =
-    confidences.length > 0 ? confidences.reduce((a, b) => a + b, 0) / confidences.length : 0;
+      onProgress?.(100);
 
-  onProgress?.(100);
-
-  return {
-    lyrics,
-    metadata,
-    precision: config.precision,
-    overallConfidence,
-    processingTimeMs,
-  };
+      return {
+        lyrics,
+        metadata,
+        precision: config.precision,
+        overallConfidence,
+        processingTimeMs,
+      };
+    },
+    { signal }
+  ); // end withRetry
 };
 
 // Helper to build schema based on precision level
@@ -375,8 +655,11 @@ function buildPrecisionSchema(precision: TimingPrecision): Schema {
 // 2. Chat with AI (Contextual)
 export const sendChatMessage = async (
   history: { role: string; parts: { text: string }[] }[],
-  newMessage: string
+  newMessage: string,
+  signal?: AbortSignal
 ) => {
+  if (signal?.aborted) throw createAbortError();
+
   const ai = await getAI();
   const chat = ai.chats.create({
     model: 'gemini-3-pro-preview',
@@ -387,6 +670,8 @@ export const sendChatMessage = async (
       tools: [{ functionDeclarations: [generateBackgroundImageTool] }],
     },
   });
+
+  if (signal?.aborted) throw createAbortError();
 
   const result = await chat.sendMessage({ message: newMessage });
   return {
@@ -399,11 +684,16 @@ export const sendChatMessage = async (
 export const generateBackground = async (
   prompt: string,
   aspectRatio: AspectRatio,
-  size: ImageSize
+  size: ImageSize,
+  signal?: AbortSignal
 ): Promise<string> => {
+  if (signal?.aborted) throw createAbortError();
+
   const ai = await getAI();
   const model =
     size === '2K' || size === '4K' ? 'gemini-3-pro-image-preview' : 'gemini-2.5-flash-image';
+
+  if (signal?.aborted) throw createAbortError();
 
   const response = await ai.models.generateContent({
     model: model,
@@ -416,6 +706,8 @@ export const generateBackground = async (
     },
   });
 
+  if (signal?.aborted) throw createAbortError();
+
   for (const part of response.candidates?.[0]?.content?.parts || []) {
     if (part.inlineData) {
       return `data:image/png;base64,${part.inlineData.data}`;
@@ -425,9 +717,13 @@ export const generateBackground = async (
 };
 
 // 4. Analyze Image
-export const analyzeImage = async (file: File): Promise<string> => {
+export const analyzeImage = async (file: File, signal?: AbortSignal): Promise<string> => {
+  if (signal?.aborted) throw createAbortError();
+
   const ai = await getAI();
   const base64 = await fileToBase64(file);
+
+  if (signal?.aborted) throw createAbortError();
 
   const response = await ai.models.generateContent({
     model: 'gemini-3-pro-preview',
@@ -446,8 +742,11 @@ export const analyzeImage = async (file: File): Promise<string> => {
 // 5. Generate Video (Veo)
 export const generateVideoBackground = async (
   prompt: string,
-  aspectRatio: '16:9' | '9:16'
+  aspectRatio: '16:9' | '9:16',
+  signal?: AbortSignal
 ): Promise<string> => {
+  if (signal?.aborted) throw createAbortError();
+
   // @ts-expect-error - aistudio is injected by AI Studio environment
   if (window.aistudio && window.aistudio.hasSelectedApiKey) {
     // @ts-expect-error - aistudio is injected by AI Studio environment
@@ -457,6 +756,8 @@ export const generateVideoBackground = async (
       await window.aistudio.openSelectKey();
     }
   }
+
+  if (signal?.aborted) throw createAbortError();
 
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
@@ -470,15 +771,19 @@ export const generateVideoBackground = async (
     },
   });
 
+  // Poll for completion with abort support
   while (!operation.done) {
-    await new Promise((resolve) => setTimeout(resolve, 5000));
+    if (signal?.aborted) throw createAbortError();
+    await abortableDelay(5000, signal);
     operation = await ai.operations.getVideosOperation({ operation: operation });
   }
+
+  if (signal?.aborted) throw createAbortError();
 
   const videoUri = operation.response?.generatedVideos?.[0]?.video?.uri;
   if (!videoUri) throw new Error('Video generation failed');
 
-  const res = await fetch(`${videoUri}&key=${process.env.API_KEY}`);
+  const res = await fetch(`${videoUri}&key=${process.env.API_KEY}`, { signal });
   if (!res.ok) {
     throw new Error(`Failed to fetch generated video: ${res.statusText}`);
   }
@@ -511,57 +816,74 @@ export const transcribeMicrophone = async (audioBlob: Blob): Promise<string> => 
   return response.text || '';
 };
 
-// 7. Detect Music Genre
-export const detectMusicGenre = async (audioFile: File): Promise<GenreDetectionResult> => {
-  const ai = await getAI();
-  const base64Audio = await fileToBase64(audioFile);
+// 7. Detect Music Genre (with caching and retry)
+export const detectMusicGenre = async (
+  audioFile: File,
+  signal?: AbortSignal
+): Promise<GenreDetectionResult> => {
+  if (signal?.aborted) throw createAbortError();
 
-  const responseSchema: Schema = {
-    type: Type.OBJECT,
-    properties: {
-      genre: {
-        type: Type.STRING,
-        enum: Object.values(Genre),
-        description: 'The primary detected music genre',
-      },
-      confidence: {
-        type: Type.NUMBER,
-        description: 'Confidence level from 0 to 1',
-      },
-      suggestedStyle: {
-        type: Type.STRING,
-        description: 'Recommended visual style for this genre (e.g., neon, vintage, elegant)',
-      },
-      mood: {
-        type: Type.STRING,
-        description: 'The overall mood of the track (e.g., energetic, melancholic, uplifting)',
-      },
-      subgenres: {
-        type: Type.ARRAY,
-        items: { type: Type.STRING },
-        description: 'Secondary genres or subgenres detected',
-      },
-      tempo: {
-        type: Type.STRING,
-        enum: ['slow', 'medium', 'fast'],
-        description: 'General tempo of the track',
-      },
-      energy: {
-        type: Type.STRING,
-        enum: ['low', 'medium', 'high'],
-        description: 'Energy level of the track',
-      },
-    },
-    required: ['genre', 'confidence', 'suggestedStyle', 'mood'],
-  };
+  // Check cache first
+  const cacheKey = geminiCache.generateKey('detectMusicGenre', [audioFile]);
+  const cached = geminiCache.get<GenreDetectionResult>(cacheKey);
+  if (cached) {
+    console.log('detectMusicGenre: returning cached result');
+    return cached;
+  }
 
-  const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
-    contents: {
-      parts: [
-        { inlineData: { mimeType: audioFile.type, data: base64Audio } },
-        {
-          text: `Analyze this audio track and determine its music genre. Consider:
+  const result = await withRetry(
+    async () => {
+      if (signal?.aborted) throw createAbortError();
+      const ai = await getAI();
+      const base64Audio = await fileToBase64(audioFile);
+      if (signal?.aborted) throw createAbortError();
+
+      const responseSchema: Schema = {
+        type: Type.OBJECT,
+        properties: {
+          genre: {
+            type: Type.STRING,
+            enum: Object.values(Genre),
+            description: 'The primary detected music genre',
+          },
+          confidence: {
+            type: Type.NUMBER,
+            description: 'Confidence level from 0 to 1',
+          },
+          suggestedStyle: {
+            type: Type.STRING,
+            description: 'Recommended visual style for this genre (e.g., neon, vintage, elegant)',
+          },
+          mood: {
+            type: Type.STRING,
+            description: 'The overall mood of the track (e.g., energetic, melancholic, uplifting)',
+          },
+          subgenres: {
+            type: Type.ARRAY,
+            items: { type: Type.STRING },
+            description: 'Secondary genres or subgenres detected',
+          },
+          tempo: {
+            type: Type.STRING,
+            enum: ['slow', 'medium', 'fast'],
+            description: 'General tempo of the track',
+          },
+          energy: {
+            type: Type.STRING,
+            enum: ['low', 'medium', 'high'],
+            description: 'Energy level of the track',
+          },
+        },
+        required: ['genre', 'confidence', 'suggestedStyle', 'mood'],
+      };
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: {
+          parts: [
+            { inlineData: { mimeType: audioFile.type, data: base64Audio } },
+            {
+              text: `Analyze this audio track and determine its music genre. Consider:
 1. The primary genre (hiphop, rock, electronic, classical, pop, indie, rnb, jazz, country, metal)
 2. Your confidence level in this classification (0 to 1)
 3. A visual style that would complement this genre for a lyric video
@@ -569,40 +891,47 @@ export const detectMusicGenre = async (audioFile: File): Promise<GenreDetectionR
 5. Any secondary genres or subgenres
 
 Focus on the musical characteristics: instruments, rhythm, vocal style, production techniques.`,
+            },
+          ],
         },
-      ],
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: responseSchema,
+        },
+      });
+
+      const json = JSON.parse(response.text || '{}');
+
+      // Map string genre to Genre enum
+      const genreMap: Record<string, Genre> = {
+        hiphop: Genre.HIPHOP,
+        rock: Genre.ROCK,
+        electronic: Genre.ELECTRONIC,
+        classical: Genre.CLASSICAL,
+        pop: Genre.POP,
+        indie: Genre.INDIE,
+        rnb: Genre.RNB,
+        jazz: Genre.JAZZ,
+        country: Genre.COUNTRY,
+        metal: Genre.METAL,
+      };
+
+      return {
+        genre: genreMap[json.genre?.toLowerCase()] || Genre.POP,
+        confidence: json.confidence || 0.5,
+        suggestedStyle: json.suggestedStyle || 'modern',
+        mood: json.mood || 'neutral',
+      };
     },
-    config: {
-      responseMimeType: 'application/json',
-      responseSchema: responseSchema,
-    },
-  });
+    { signal }
+  ); // end withRetry
 
-  const json = JSON.parse(response.text || '{}');
-
-  // Map string genre to Genre enum
-  const genreMap: Record<string, Genre> = {
-    hiphop: Genre.HIPHOP,
-    rock: Genre.ROCK,
-    electronic: Genre.ELECTRONIC,
-    classical: Genre.CLASSICAL,
-    pop: Genre.POP,
-    indie: Genre.INDIE,
-    rnb: Genre.RNB,
-    jazz: Genre.JAZZ,
-    country: Genre.COUNTRY,
-    metal: Genre.METAL,
-  };
-
-  return {
-    genre: genreMap[json.genre?.toLowerCase()] || Genre.POP,
-    confidence: json.confidence || 0.5,
-    suggestedStyle: json.suggestedStyle || 'modern',
-    mood: json.mood || 'neutral',
-  };
+  // Cache the result (10 minute TTL for genre detection)
+  geminiCache.set(cacheKey, result, 10 * 60 * 1000);
+  return result;
 };
 
-// 8. Get Visual Recommendations Based on Audio
+// 8. Get Visual Recommendations Based on Audio (with retry)
 export const getVisualRecommendations = async (
   audioFile: File
 ): Promise<{
@@ -678,50 +1007,53 @@ Consider the tempo, instruments, vocal style, and emotional content.`,
 // 9. Detect Emotional Peaks in Song
 export const detectEmotionalPeaks = async (
   lyrics: LyricLine[],
-  audioFile: File
+  audioFile: File,
+  signal?: AbortSignal
 ): Promise<EmotionalPeak[]> => {
-  const ai = await getAI();
-  const base64Audio = await fileToBase64(audioFile);
+  return withRetry(
+    async () => {
+      const ai = await getAI();
+      const base64Audio = await fileToBase64(audioFile);
 
-  // Format lyrics for analysis
-  const formattedLyrics = lyrics
-    .map(
-      (line, idx) =>
-        `[${idx}] (${line.startTime.toFixed(2)}s - ${line.endTime.toFixed(2)}s) ${line.section || ''}: "${line.text}"`
-    )
-    .join('\n');
+      // Format lyrics for analysis
+      const formattedLyrics = lyrics
+        .map(
+          (line, idx) =>
+            `[${idx}] (${line.startTime.toFixed(2)}s - ${line.endTime.toFixed(2)}s) ${line.section || ''}: "${line.text}"`
+        )
+        .join('\n');
 
-  const responseSchema: Schema = {
-    type: Type.ARRAY,
-    items: {
-      type: Type.OBJECT,
-      properties: {
-        lyricIndex: { type: Type.NUMBER, description: 'Index of the lyric line' },
-        peakType: {
-          type: Type.STRING,
-          enum: ['chorus', 'climax', 'bridge', 'outro', 'energy_spike'],
-          description: 'Type of emotional peak',
+      const responseSchema: Schema = {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            lyricIndex: { type: Type.NUMBER, description: 'Index of the lyric line' },
+            peakType: {
+              type: Type.STRING,
+              enum: ['chorus', 'climax', 'bridge', 'outro', 'energy_spike'],
+              description: 'Type of emotional peak',
+            },
+            intensity: {
+              type: Type.NUMBER,
+              description: 'Intensity from 0 to 1',
+            },
+            suggestedVisual: {
+              type: Type.STRING,
+              description: 'Visual concept for this moment',
+            },
+          },
+          required: ['lyricIndex', 'peakType', 'intensity'],
         },
-        intensity: {
-          type: Type.NUMBER,
-          description: 'Intensity from 0 to 1',
-        },
-        suggestedVisual: {
-          type: Type.STRING,
-          description: 'Visual concept for this moment',
-        },
-      },
-      required: ['lyricIndex', 'peakType', 'intensity'],
-    },
-  };
+      };
 
-  const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
-    contents: {
-      parts: [
-        { inlineData: { mimeType: audioFile.type, data: base64Audio } },
-        {
-          text: `Analyze this audio and the following lyrics to identify emotional peaks.
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: {
+          parts: [
+            { inlineData: { mimeType: audioFile.type, data: base64Audio } },
+            {
+              text: `Analyze this audio and the following lyrics to identify emotional peaks.
 
 LYRICS WITH TIMING:
 ${formattedLyrics}
@@ -739,38 +1071,41 @@ For each peak, provide:
 - suggestedVisual: Brief visual concept for this moment
 
 Listen to the actual audio energy levels, not just the lyrics.`,
+            },
+          ],
         },
-      ],
-    },
-    config: {
-      responseMimeType: 'application/json',
-      responseSchema: responseSchema,
-    },
-  });
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: responseSchema,
+        },
+      });
 
-  const peaks = JSON.parse(response.text || '[]');
+      const peaks = JSON.parse(response.text || '[]');
 
-  return peaks.map(
-    (
-      peak: {
-        lyricIndex: number;
-        peakType: string;
-        intensity: number;
-        suggestedVisual?: string;
-      },
-      idx: number
-    ) => {
-      const lyric = lyrics[peak.lyricIndex];
-      return {
-        id: `peak-${idx}`,
-        lyricIndex: peak.lyricIndex,
-        startTime: lyric?.startTime || 0,
-        endTime: lyric?.endTime || 0,
-        peakType: peak.peakType as EmotionalPeak['peakType'],
-        intensity: peak.intensity,
-        suggestedVisual: peak.suggestedVisual,
-      };
-    }
+      return peaks.map(
+        (
+          peak: {
+            lyricIndex: number;
+            peakType: string;
+            intensity: number;
+            suggestedVisual?: string;
+          },
+          idx: number
+        ) => {
+          const lyric = lyrics[peak.lyricIndex];
+          return {
+            id: `peak-${idx}`,
+            lyricIndex: peak.lyricIndex,
+            startTime: lyric?.startTime || 0,
+            endTime: lyric?.endTime || 0,
+            peakType: peak.peakType as EmotionalPeak['peakType'],
+            intensity: peak.intensity,
+            suggestedVisual: peak.suggestedVisual,
+          };
+        }
+      );
+    },
+    { signal }
   );
 };
 
@@ -779,9 +1114,12 @@ export const generatePeakVisual = async (
   peak: EmotionalPeak,
   lyrics: LyricLine[],
   mood: VideoPlanMood,
-  aspectRatio: AspectRatio = '16:9'
+  aspectRatio: AspectRatio = '16:9',
+  signal?: AbortSignal
 ): Promise<GeneratedAsset> => {
+  if (signal?.aborted) throw createAbortError();
   const ai = await getAI();
+  if (signal?.aborted) throw createAbortError();
 
   // Get the lyric text for this peak
   const lyricText = lyrics[peak.lyricIndex]?.text || '';
@@ -827,146 +1165,155 @@ Create a visually striking background that enhances the emotional impact of this
   throw new Error('Failed to generate peak visual');
 };
 
-// 11. Generate Complete Video Plan
+// 11. Generate Complete Video Plan - with retry
 export const generateVideoPlan = async (
   audioFile: File,
   analysis: CrossVerifiedAnalysis,
   emotionalPeaks: EmotionalPeak[],
   lyrics: LyricLine[],
-  userCreativeVision?: string
+  userCreativeVision?: string,
+  signal?: AbortSignal
 ): Promise<Omit<VideoPlan, 'hybridVisuals' | 'backgroundStrategy' | 'userCreativeVision'>> => {
-  const ai = await getAI();
-  const base64Audio = await fileToBase64(audioFile);
+  return withRetry(
+    async () => {
+      if (signal?.aborted) throw createAbortError();
+      const ai = await getAI();
+      const base64Audio = await fileToBase64(audioFile);
+      if (signal?.aborted) throw createAbortError();
 
-  // Available effects for the AI to choose from
-  const availableBackgroundEffects = [
-    {
-      id: 'hiphop-urban',
-      name: 'Hip Hop Urban',
-      description: 'Bold geometric shapes, graffiti-inspired',
-    },
-    {
-      id: 'rock-energy',
-      name: 'Rock Energy',
-      description: 'High energy with stage lighting, distortion',
-    },
-    {
-      id: 'electronic-edm',
-      name: 'Electronic EDM',
-      description: 'Neon grids, synthwave aesthetics',
-    },
-    {
-      id: 'classical-elegant',
-      name: 'Classical Elegant',
-      description: 'Refined and minimal with soft particles',
-    },
-    {
-      id: 'pop-vibrant',
-      name: 'Pop Vibrant',
-      description: 'Bright and playful with bouncy shapes',
-    },
-    { id: 'indie-dreamy', name: 'Indie Dreamy', description: 'Vintage soft bokeh with film grain' },
-  ];
-
-  const availableLyricEffects = [
-    {
-      id: 'character-pop',
-      name: 'Character Pop',
-      description: 'Bounce-in animation per character',
-    },
-    { id: 'wave', name: 'Wave', description: 'Sine wave animation on characters' },
-    { id: 'rainbow-cycle', name: 'Rainbow Cycle', description: 'Cycling rainbow colors' },
-    { id: 'gravity-fall', name: 'Gravity Fall', description: 'Characters fall with physics' },
-    { id: 'explode', name: 'Explode', description: 'Text shatters into fragments' },
-    { id: 'flip', name: 'Flip', description: '3D flip animation' },
-    { id: 'particle-burst', name: 'Particle Burst', description: 'Particles burst from text' },
-  ];
-
-  const responseSchema: Schema = {
-    type: Type.OBJECT,
-    properties: {
-      mood: {
-        type: Type.OBJECT,
-        properties: {
-          primary: { type: Type.STRING },
-          secondary: { type: Type.STRING },
-          intensity: { type: Type.STRING, enum: ['low', 'medium', 'high'] },
-          description: { type: Type.STRING },
+      // Available effects for the AI to choose from
+      const availableBackgroundEffects = [
+        {
+          id: 'hiphop-urban',
+          name: 'Hip Hop Urban',
+          description: 'Bold geometric shapes, graffiti-inspired',
         },
-        required: ['primary', 'intensity', 'description'],
-      },
-      colorPalette: {
-        type: Type.OBJECT,
-        properties: {
-          name: { type: Type.STRING },
-          primary: { type: Type.STRING },
-          secondary: { type: Type.STRING },
-          accent: { type: Type.STRING },
-          background: { type: Type.STRING },
-          text: { type: Type.STRING },
+        {
+          id: 'rock-energy',
+          name: 'Rock Energy',
+          description: 'High energy with stage lighting, distortion',
         },
-        required: ['name', 'primary', 'secondary', 'accent', 'background', 'text'],
-      },
-      visualStyle: {
+        {
+          id: 'electronic-edm',
+          name: 'Electronic EDM',
+          description: 'Neon grids, synthwave aesthetics',
+        },
+        {
+          id: 'classical-elegant',
+          name: 'Classical Elegant',
+          description: 'Refined and minimal with soft particles',
+        },
+        {
+          id: 'pop-vibrant',
+          name: 'Pop Vibrant',
+          description: 'Bright and playful with bouncy shapes',
+        },
+        {
+          id: 'indie-dreamy',
+          name: 'Indie Dreamy',
+          description: 'Vintage soft bokeh with film grain',
+        },
+      ];
+
+      const availableLyricEffects = [
+        {
+          id: 'character-pop',
+          name: 'Character Pop',
+          description: 'Bounce-in animation per character',
+        },
+        { id: 'wave', name: 'Wave', description: 'Sine wave animation on characters' },
+        { id: 'rainbow-cycle', name: 'Rainbow Cycle', description: 'Cycling rainbow colors' },
+        { id: 'gravity-fall', name: 'Gravity Fall', description: 'Characters fall with physics' },
+        { id: 'explode', name: 'Explode', description: 'Text shatters into fragments' },
+        { id: 'flip', name: 'Flip', description: '3D flip animation' },
+        { id: 'particle-burst', name: 'Particle Burst', description: 'Particles burst from text' },
+      ];
+
+      const responseSchema: Schema = {
         type: Type.OBJECT,
         properties: {
-          style: { type: Type.STRING, enum: Object.values(VisualStyle) },
-          textAnimation: {
-            type: Type.STRING,
-            enum: ['NONE', 'TYPEWRITER', 'FADE_CHARS', 'KINETIC', 'BOUNCE'],
+          mood: {
+            type: Type.OBJECT,
+            properties: {
+              primary: { type: Type.STRING },
+              secondary: { type: Type.STRING },
+              intensity: { type: Type.STRING, enum: ['low', 'medium', 'high'] },
+              description: { type: Type.STRING },
+            },
+            required: ['primary', 'intensity', 'description'],
           },
-          fontFamily: {
-            type: Type.STRING,
-            enum: ['Space Grotesk', 'Inter', 'Roboto', 'Montserrat', 'Cinzel'],
+          colorPalette: {
+            type: Type.OBJECT,
+            properties: {
+              name: { type: Type.STRING },
+              primary: { type: Type.STRING },
+              secondary: { type: Type.STRING },
+              accent: { type: Type.STRING },
+              background: { type: Type.STRING },
+              text: { type: Type.STRING },
+            },
+            required: ['name', 'primary', 'secondary', 'accent', 'background', 'text'],
           },
-          blendMode: { type: Type.STRING },
-          intensity: { type: Type.NUMBER },
-          particleSpeed: { type: Type.NUMBER },
-        },
-        required: ['style', 'textAnimation', 'fontFamily', 'intensity', 'particleSpeed'],
-      },
-      backgroundEffect: {
-        type: Type.OBJECT,
-        properties: {
-          effectId: { type: Type.STRING },
-          name: { type: Type.STRING },
-          description: { type: Type.STRING },
-          reason: { type: Type.STRING },
-        },
-        required: ['effectId', 'name', 'description'],
-      },
-      lyricEffects: {
-        type: Type.ARRAY,
-        items: {
-          type: Type.OBJECT,
-          properties: {
-            effectId: { type: Type.STRING },
-            name: { type: Type.STRING },
-            description: { type: Type.STRING },
-            reason: { type: Type.STRING },
+          visualStyle: {
+            type: Type.OBJECT,
+            properties: {
+              style: { type: Type.STRING, enum: Object.values(VisualStyle) },
+              textAnimation: {
+                type: Type.STRING,
+                enum: ['NONE', 'TYPEWRITER', 'FADE_CHARS', 'KINETIC', 'BOUNCE'],
+              },
+              fontFamily: {
+                type: Type.STRING,
+                enum: ['Space Grotesk', 'Inter', 'Roboto', 'Montserrat', 'Cinzel'],
+              },
+              blendMode: { type: Type.STRING },
+              intensity: { type: Type.NUMBER },
+              particleSpeed: { type: Type.NUMBER },
+            },
+            required: ['style', 'textAnimation', 'fontFamily', 'intensity', 'particleSpeed'],
           },
-          required: ['effectId', 'name', 'description'],
+          backgroundEffect: {
+            type: Type.OBJECT,
+            properties: {
+              effectId: { type: Type.STRING },
+              name: { type: Type.STRING },
+              description: { type: Type.STRING },
+              reason: { type: Type.STRING },
+            },
+            required: ['effectId', 'name', 'description'],
+          },
+          lyricEffects: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                effectId: { type: Type.STRING },
+                name: { type: Type.STRING },
+                description: { type: Type.STRING },
+                reason: { type: Type.STRING },
+              },
+              required: ['effectId', 'name', 'description'],
+            },
+          },
+          summary: { type: Type.STRING },
+          rationale: { type: Type.STRING },
         },
-      },
-      summary: { type: Type.STRING },
-      rationale: { type: Type.STRING },
-    },
-    required: [
-      'mood',
-      'colorPalette',
-      'visualStyle',
-      'backgroundEffect',
-      'lyricEffects',
-      'summary',
-      'rationale',
-    ],
-  };
+        required: [
+          'mood',
+          'colorPalette',
+          'visualStyle',
+          'backgroundEffect',
+          'lyricEffects',
+          'summary',
+          'rationale',
+        ],
+      };
 
-  const visionSection = userCreativeVision
-    ? `\nUSER'S CREATIVE VISION:\n"${userCreativeVision}"\n\nIMPORTANT: Incorporate the user's vision into all creative decisions. Their preferences should guide the mood, colors, and overall aesthetic.\n`
-    : '';
+      const visionSection = userCreativeVision
+        ? `\nUSER'S CREATIVE VISION:\n"${userCreativeVision}"\n\nIMPORTANT: Incorporate the user's vision into all creative decisions. Their preferences should guide the mood, colors, and overall aesthetic.\n`
+        : '';
 
-  const prompt = `You are a creative director creating a comprehensive video plan for a lyric video.
+      const prompt = `You are a creative director creating a comprehensive video plan for a lyric video.
 
 SONG ANALYSIS:
 - Detected Genre: ${analysis.consensusGenre} (${Math.round(analysis.confidence * 100)}% confidence)
@@ -990,153 +1337,163 @@ Create a cohesive video plan that includes:
 
 Be creative but cohesive - all elements should work together harmoniously.`;
 
-  const response = await ai.models.generateContent({
-    model: 'gemini-3-pro-preview',
-    contents: {
-      parts: [{ inlineData: { mimeType: audioFile.type, data: base64Audio } }, { text: prompt }],
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-pro-preview',
+        contents: {
+          parts: [
+            { inlineData: { mimeType: audioFile.type, data: base64Audio } },
+            { text: prompt },
+          ],
+        },
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: responseSchema,
+        },
+      });
+
+      const json = JSON.parse(response.text || '{}');
+
+      // Build the color palette with gradient
+      const palette: VideoPlanColorPalette = {
+        name: json.colorPalette.name || 'Custom Palette',
+        primary: json.colorPalette.primary || '#6366f1',
+        secondary: json.colorPalette.secondary || '#8b5cf6',
+        accent: json.colorPalette.accent || '#ec4899',
+        background: json.colorPalette.background || '#0f0f0f',
+        text: json.colorPalette.text || '#ffffff',
+        previewGradient: `linear-gradient(135deg, ${json.colorPalette.primary}, ${json.colorPalette.secondary}, ${json.colorPalette.accent})`,
+      };
+
+      // Build mood
+      const mood: VideoPlanMood = {
+        primary: json.mood.primary || 'Energetic',
+        secondary: json.mood.secondary,
+        intensity: json.mood.intensity || 'medium',
+        description: json.mood.description || 'A dynamic and expressive mood',
+      };
+
+      // Build visual style
+      const visualStyle: VideoPlanVisualStyle = {
+        style: (json.visualStyle.style as VisualStyle) || VisualStyle.NEON_PULSE,
+        textAnimation: json.visualStyle.textAnimation || 'FADE_CHARS',
+        fontFamily: json.visualStyle.fontFamily || 'Space Grotesk',
+        blendMode: json.visualStyle.blendMode || 'screen',
+        intensity: json.visualStyle.intensity || 1.5,
+        particleSpeed: json.visualStyle.particleSpeed || 1.0,
+      };
+
+      // Build background effect
+      const backgroundEffect: VideoPlanEffect = {
+        effectId: json.backgroundEffect.effectId || 'pop-vibrant',
+        name: json.backgroundEffect.name || 'Pop Vibrant',
+        description: json.backgroundEffect.description || 'Bright and colorful background',
+        parameters: {},
+        reason: json.backgroundEffect.reason,
+      };
+
+      // Build lyric effects
+      const lyricEffects: VideoPlanEffect[] = (json.lyricEffects || []).map(
+        (e: { effectId: string; name: string; description: string; reason?: string }) => ({
+          effectId: e.effectId,
+          name: e.name,
+          description: e.description,
+          parameters: {},
+          reason: e.reason,
+        })
+      );
+
+      return {
+        id: `plan-${Date.now()}`,
+        createdAt: new Date(),
+        version: 1,
+        status: 'draft',
+        analysis,
+        emotionalPeaks,
+        mood,
+        colorPalette: palette,
+        visualStyle,
+        backgroundEffect,
+        lyricEffects,
+        summary: json.summary || 'AI-generated video plan',
+        rationale: json.rationale || 'Plan created based on audio analysis',
+      };
     },
-    config: {
-      responseMimeType: 'application/json',
-      responseSchema: responseSchema,
-    },
-  });
-
-  const json = JSON.parse(response.text || '{}');
-
-  // Build the color palette with gradient
-  const palette: VideoPlanColorPalette = {
-    name: json.colorPalette.name || 'Custom Palette',
-    primary: json.colorPalette.primary || '#6366f1',
-    secondary: json.colorPalette.secondary || '#8b5cf6',
-    accent: json.colorPalette.accent || '#ec4899',
-    background: json.colorPalette.background || '#0f0f0f',
-    text: json.colorPalette.text || '#ffffff',
-    previewGradient: `linear-gradient(135deg, ${json.colorPalette.primary}, ${json.colorPalette.secondary}, ${json.colorPalette.accent})`,
-  };
-
-  // Build mood
-  const mood: VideoPlanMood = {
-    primary: json.mood.primary || 'Energetic',
-    secondary: json.mood.secondary,
-    intensity: json.mood.intensity || 'medium',
-    description: json.mood.description || 'A dynamic and expressive mood',
-  };
-
-  // Build visual style
-  const visualStyle: VideoPlanVisualStyle = {
-    style: (json.visualStyle.style as VisualStyle) || VisualStyle.NEON_PULSE,
-    textAnimation: json.visualStyle.textAnimation || 'FADE_CHARS',
-    fontFamily: json.visualStyle.fontFamily || 'Space Grotesk',
-    blendMode: json.visualStyle.blendMode || 'screen',
-    intensity: json.visualStyle.intensity || 1.5,
-    particleSpeed: json.visualStyle.particleSpeed || 1.0,
-  };
-
-  // Build background effect
-  const backgroundEffect: VideoPlanEffect = {
-    effectId: json.backgroundEffect.effectId || 'pop-vibrant',
-    name: json.backgroundEffect.name || 'Pop Vibrant',
-    description: json.backgroundEffect.description || 'Bright and colorful background',
-    parameters: {},
-    reason: json.backgroundEffect.reason,
-  };
-
-  // Build lyric effects
-  const lyricEffects: VideoPlanEffect[] = (json.lyricEffects || []).map(
-    (e: { effectId: string; name: string; description: string; reason?: string }) => ({
-      effectId: e.effectId,
-      name: e.name,
-      description: e.description,
-      parameters: {},
-      reason: e.reason,
-    })
-  );
-
-  return {
-    id: `plan-${Date.now()}`,
-    createdAt: new Date(),
-    version: 1,
-    status: 'draft',
-    analysis,
-    emotionalPeaks,
-    mood,
-    colorPalette: palette,
-    visualStyle,
-    backgroundEffect,
-    lyricEffects,
-    summary: json.summary || 'AI-generated video plan',
-    rationale: json.rationale || 'Plan created based on audio analysis',
-  };
+    { signal }
+  ); // end withRetry
 };
 
-// 12. Modify Video Plan via Instruction
+// 12. Modify Video Plan via Instruction - with retry
 export const modifyVideoPlan = async (
   currentPlan: VideoPlan,
-  instruction: string
+  instruction: string,
+  signal?: AbortSignal
 ): Promise<VideoPlan> => {
-  const ai = await getAI();
+  return withRetry(
+    async () => {
+      if (signal?.aborted) throw createAbortError();
+      const ai = await getAI();
 
-  const responseSchema: Schema = {
-    type: Type.OBJECT,
-    properties: {
-      mood: {
+      const responseSchema: Schema = {
         type: Type.OBJECT,
         properties: {
-          primary: { type: Type.STRING },
-          secondary: { type: Type.STRING },
-          intensity: { type: Type.STRING, enum: ['low', 'medium', 'high'] },
-          description: { type: Type.STRING },
-        },
-      },
-      colorPalette: {
-        type: Type.OBJECT,
-        properties: {
-          name: { type: Type.STRING },
-          primary: { type: Type.STRING },
-          secondary: { type: Type.STRING },
-          accent: { type: Type.STRING },
-          background: { type: Type.STRING },
-          text: { type: Type.STRING },
-        },
-      },
-      visualStyle: {
-        type: Type.OBJECT,
-        properties: {
-          style: { type: Type.STRING },
-          textAnimation: { type: Type.STRING },
-          fontFamily: { type: Type.STRING },
-          blendMode: { type: Type.STRING },
-          intensity: { type: Type.NUMBER },
-          particleSpeed: { type: Type.NUMBER },
-        },
-      },
-      backgroundEffect: {
-        type: Type.OBJECT,
-        properties: {
-          effectId: { type: Type.STRING },
-          name: { type: Type.STRING },
-          description: { type: Type.STRING },
-          reason: { type: Type.STRING },
-        },
-      },
-      lyricEffects: {
-        type: Type.ARRAY,
-        items: {
-          type: Type.OBJECT,
-          properties: {
-            effectId: { type: Type.STRING },
-            name: { type: Type.STRING },
-            description: { type: Type.STRING },
-            reason: { type: Type.STRING },
+          mood: {
+            type: Type.OBJECT,
+            properties: {
+              primary: { type: Type.STRING },
+              secondary: { type: Type.STRING },
+              intensity: { type: Type.STRING, enum: ['low', 'medium', 'high'] },
+              description: { type: Type.STRING },
+            },
           },
+          colorPalette: {
+            type: Type.OBJECT,
+            properties: {
+              name: { type: Type.STRING },
+              primary: { type: Type.STRING },
+              secondary: { type: Type.STRING },
+              accent: { type: Type.STRING },
+              background: { type: Type.STRING },
+              text: { type: Type.STRING },
+            },
+          },
+          visualStyle: {
+            type: Type.OBJECT,
+            properties: {
+              style: { type: Type.STRING },
+              textAnimation: { type: Type.STRING },
+              fontFamily: { type: Type.STRING },
+              blendMode: { type: Type.STRING },
+              intensity: { type: Type.NUMBER },
+              particleSpeed: { type: Type.NUMBER },
+            },
+          },
+          backgroundEffect: {
+            type: Type.OBJECT,
+            properties: {
+              effectId: { type: Type.STRING },
+              name: { type: Type.STRING },
+              description: { type: Type.STRING },
+              reason: { type: Type.STRING },
+            },
+          },
+          lyricEffects: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                effectId: { type: Type.STRING },
+                name: { type: Type.STRING },
+                description: { type: Type.STRING },
+                reason: { type: Type.STRING },
+              },
+            },
+          },
+          summary: { type: Type.STRING },
+          rationale: { type: Type.STRING },
         },
-      },
-      summary: { type: Type.STRING },
-      rationale: { type: Type.STRING },
-    },
-  };
+      };
 
-  const prompt = `You are modifying an existing video plan based on user feedback.
+      const prompt = `You are modifying an existing video plan based on user feedback.
 
 CURRENT PLAN:
 ${JSON.stringify(
@@ -1163,66 +1520,69 @@ Examples of modifications:
 
 Return the complete modified plan with updated summary and rationale.`;
 
-  const response = await ai.models.generateContent({
-    model: 'gemini-3-pro-preview',
-    contents: { parts: [{ text: prompt }] },
-    config: {
-      responseMimeType: 'application/json',
-      responseSchema: responseSchema,
-    },
-  });
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-pro-preview',
+        contents: { parts: [{ text: prompt }] },
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: responseSchema,
+        },
+      });
 
-  const json = JSON.parse(response.text || '{}');
+      const json = JSON.parse(response.text || '{}');
 
-  // Merge modifications with current plan
-  return {
-    ...currentPlan,
-    id: `plan-${Date.now()}`,
-    version: currentPlan.version + 1,
-    mood: {
-      primary: json.mood?.primary || currentPlan.mood.primary,
-      secondary: json.mood?.secondary || currentPlan.mood.secondary,
-      intensity: json.mood?.intensity || currentPlan.mood.intensity,
-      description: json.mood?.description || currentPlan.mood.description,
+      // Merge modifications with current plan
+      return {
+        ...currentPlan,
+        id: `plan-${Date.now()}`,
+        version: currentPlan.version + 1,
+        mood: {
+          primary: json.mood?.primary || currentPlan.mood.primary,
+          secondary: json.mood?.secondary || currentPlan.mood.secondary,
+          intensity: json.mood?.intensity || currentPlan.mood.intensity,
+          description: json.mood?.description || currentPlan.mood.description,
+        },
+        colorPalette: {
+          name: json.colorPalette?.name || currentPlan.colorPalette.name,
+          primary: json.colorPalette?.primary || currentPlan.colorPalette.primary,
+          secondary: json.colorPalette?.secondary || currentPlan.colorPalette.secondary,
+          accent: json.colorPalette?.accent || currentPlan.colorPalette.accent,
+          background: json.colorPalette?.background || currentPlan.colorPalette.background,
+          text: json.colorPalette?.text || currentPlan.colorPalette.text,
+          previewGradient: `linear-gradient(135deg, ${json.colorPalette?.primary || currentPlan.colorPalette.primary}, ${json.colorPalette?.secondary || currentPlan.colorPalette.secondary}, ${json.colorPalette?.accent || currentPlan.colorPalette.accent})`,
+        },
+        visualStyle: {
+          style: (json.visualStyle?.style as VisualStyle) || currentPlan.visualStyle.style,
+          textAnimation: json.visualStyle?.textAnimation || currentPlan.visualStyle.textAnimation,
+          fontFamily: json.visualStyle?.fontFamily || currentPlan.visualStyle.fontFamily,
+          blendMode: json.visualStyle?.blendMode || currentPlan.visualStyle.blendMode,
+          intensity: json.visualStyle?.intensity ?? currentPlan.visualStyle.intensity,
+          particleSpeed: json.visualStyle?.particleSpeed ?? currentPlan.visualStyle.particleSpeed,
+        },
+        backgroundEffect: json.backgroundEffect
+          ? {
+              effectId: json.backgroundEffect.effectId,
+              name: json.backgroundEffect.name,
+              description: json.backgroundEffect.description,
+              parameters: {},
+              reason: json.backgroundEffect.reason,
+            }
+          : currentPlan.backgroundEffect,
+        lyricEffects: json.lyricEffects?.length
+          ? json.lyricEffects.map(
+              (e: { effectId: string; name: string; description: string; reason?: string }) => ({
+                effectId: e.effectId,
+                name: e.name,
+                description: e.description,
+                parameters: {},
+                reason: e.reason,
+              })
+            )
+          : currentPlan.lyricEffects,
+        summary: json.summary || currentPlan.summary,
+        rationale: json.rationale || `Modified: ${instruction}`,
+      };
     },
-    colorPalette: {
-      name: json.colorPalette?.name || currentPlan.colorPalette.name,
-      primary: json.colorPalette?.primary || currentPlan.colorPalette.primary,
-      secondary: json.colorPalette?.secondary || currentPlan.colorPalette.secondary,
-      accent: json.colorPalette?.accent || currentPlan.colorPalette.accent,
-      background: json.colorPalette?.background || currentPlan.colorPalette.background,
-      text: json.colorPalette?.text || currentPlan.colorPalette.text,
-      previewGradient: `linear-gradient(135deg, ${json.colorPalette?.primary || currentPlan.colorPalette.primary}, ${json.colorPalette?.secondary || currentPlan.colorPalette.secondary}, ${json.colorPalette?.accent || currentPlan.colorPalette.accent})`,
-    },
-    visualStyle: {
-      style: (json.visualStyle?.style as VisualStyle) || currentPlan.visualStyle.style,
-      textAnimation: json.visualStyle?.textAnimation || currentPlan.visualStyle.textAnimation,
-      fontFamily: json.visualStyle?.fontFamily || currentPlan.visualStyle.fontFamily,
-      blendMode: json.visualStyle?.blendMode || currentPlan.visualStyle.blendMode,
-      intensity: json.visualStyle?.intensity ?? currentPlan.visualStyle.intensity,
-      particleSpeed: json.visualStyle?.particleSpeed ?? currentPlan.visualStyle.particleSpeed,
-    },
-    backgroundEffect: json.backgroundEffect
-      ? {
-          effectId: json.backgroundEffect.effectId,
-          name: json.backgroundEffect.name,
-          description: json.backgroundEffect.description,
-          parameters: {},
-          reason: json.backgroundEffect.reason,
-        }
-      : currentPlan.backgroundEffect,
-    lyricEffects: json.lyricEffects?.length
-      ? json.lyricEffects.map(
-          (e: { effectId: string; name: string; description: string; reason?: string }) => ({
-            effectId: e.effectId,
-            name: e.name,
-            description: e.description,
-            parameters: {},
-            reason: e.reason,
-          })
-        )
-      : currentPlan.lyricEffects,
-    summary: json.summary || currentPlan.summary,
-    rationale: json.rationale || `Modified: ${instruction}`,
-  };
+    { signal }
+  ); // end withRetry
 };

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   PlayIcon,
   PauseIcon,
@@ -16,6 +16,7 @@ import {
   formatTime,
   timeToPixel,
 } from '../../../services/audioAnalysisService';
+import { useAudioStore } from '../../stores';
 
 const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 8;
@@ -23,18 +24,45 @@ const WAVEFORM_HEIGHT = 80;
 const BLOCK_LAYER_HEIGHT = 60;
 
 export const WaveformEditor: React.FC<WaveformEditorProps> = ({
-  audioBuffer,
-  duration,
-  currentTime,
-  onSeek,
+  audioBuffer: audioBufferProp,
+  duration: durationProp,
+  currentTime: currentTimeProp,
+  onSeek: onSeekProp,
   lyrics,
   onLyricUpdate,
   syncPrecision,
-  isPlaying,
-  onPlayPause,
+  isPlaying: isPlayingProp,
+  onPlayPause: onPlayPauseProp,
   selectedLyricIndex,
   onSelectLyric,
 }) => {
+  // Use audio store values with props as override
+  const audioStore = useAudioStore();
+  const audioBuffer = audioBufferProp ?? audioStore.audioBuffer;
+  const duration = durationProp ?? audioStore.duration;
+  const currentTime = currentTimeProp ?? audioStore.currentTime;
+  const isPlaying = isPlayingProp ?? audioStore.isPlaying;
+
+  // Use store actions if props not provided
+  const onSeek = useCallback(
+    (time: number) => {
+      if (onSeekProp) {
+        onSeekProp(time);
+      } else {
+        audioStore.seek(time);
+      }
+    },
+    [onSeekProp, audioStore]
+  );
+
+  const onPlayPause = useCallback(() => {
+    if (onPlayPauseProp) {
+      onPlayPauseProp();
+    } else {
+      audioStore.togglePlay();
+    }
+  }, [onPlayPauseProp, audioStore]);
+
   const containerRef = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(1);
   const [scrollOffset, setScrollOffset] = useState(0);

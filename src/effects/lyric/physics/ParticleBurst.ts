@@ -8,6 +8,7 @@ import { EffectParameter, slider, enumParam } from '../../core/ParameterTypes';
 import { CharacterLyricEffect } from '../LyricEffect';
 import { clamp, random } from '../../utils/MathUtils';
 import { hsl, getPaletteColors } from '../../utils/CanvasUtils';
+import { ColorPalette } from '../../../../types';
 
 interface BurstParticle {
   x: number;
@@ -19,6 +20,8 @@ interface BurstParticle {
   life: number;
   maxLife: number;
   trail: { x: number; y: number }[];
+  trailIndex: number; // Circular buffer write index
+  trailLength: number; // Current valid entries count
 }
 
 export class ParticleBurstEffect extends CharacterLyricEffect {
@@ -43,8 +46,19 @@ export class ParticleBurstEffect extends CharacterLyricEffect {
   private burstTriggered: boolean = false;
 
   renderLyric(context: LyricEffectContext): void {
-    const { ctx, lyric, text, fontSize, fontFamily, color, progress, currentTime, x, y, palette } =
-      context;
+    const {
+      ctx,
+      lyric,
+      text: _text,
+      fontSize,
+      fontFamily,
+      color,
+      progress,
+      currentTime: _currentTime,
+      x,
+      y,
+      palette,
+    } = context;
     const characters = this.getCharacters(context);
 
     const burstCount = this.getParameter<number>('burstCount');
@@ -92,11 +106,18 @@ export class ParticleBurstEffect extends CharacterLyricEffect {
     for (const p of particles) {
       if (p.life <= 0) continue;
 
-      // Update trail
+      // Update trail using circular buffer - O(1) instead of O(n) shift()
       if (trailLength > 0) {
-        p.trail.push({ x: p.x, y: p.y });
-        while (p.trail.length > trailLength) {
-          p.trail.shift();
+        if (p.trail.length < trailLength) {
+          // Growth phase - array not yet full
+          p.trail.push({ x: p.x, y: p.y });
+          p.trailLength = p.trail.length;
+        } else {
+          // Circular write - O(1) operation
+          const idx = p.trailIndex % trailLength;
+          p.trail[idx] = { x: p.x, y: p.y };
+          p.trailIndex++;
+          p.trailLength = Math.min(p.trailLength + 1, trailLength);
         }
       }
 
@@ -110,12 +131,18 @@ export class ParticleBurstEffect extends CharacterLyricEffect {
       // Decay life
       p.life -= deltaTime / burstDuration;
 
-      // Draw trail
-      if (p.trail.length > 1) {
+      // Draw trail - iterate circular buffer in correct order
+      if (p.trailLength > 1) {
         ctx.beginPath();
-        ctx.moveTo(p.trail[0].x, p.trail[0].y);
-        for (let i = 1; i < p.trail.length; i++) {
-          ctx.lineTo(p.trail[i].x, p.trail[i].y);
+        const len = p.trail.length;
+        const startIdx = (p.trailIndex - p.trailLength + len) % len;
+
+        const firstPoint = p.trail[startIdx];
+        ctx.moveTo(firstPoint.x, firstPoint.y);
+
+        for (let i = 1; i < p.trailLength; i++) {
+          const idx = (startIdx + i) % len;
+          ctx.lineTo(p.trail[idx].x, p.trail[idx].y);
         }
         ctx.lineTo(p.x, p.y);
         ctx.strokeStyle = p.color;
@@ -143,10 +170,10 @@ export class ParticleBurstEffect extends CharacterLyricEffect {
     size: number,
     textColor: string,
     colorMode: string,
-    palette: string
+    palette: ColorPalette
   ): void {
     const particles: BurstParticle[] = [];
-    const paletteColors = getPaletteColors(palette as any);
+    const paletteColors = getPaletteColors(palette);
 
     for (let i = 0; i < count; i++) {
       const angle = random(0, Math.PI * 2);
@@ -176,6 +203,8 @@ export class ParticleBurstEffect extends CharacterLyricEffect {
         life: 1,
         maxLife: 1,
         trail: [],
+        trailIndex: 0,
+        trailLength: 0,
       });
     }
 

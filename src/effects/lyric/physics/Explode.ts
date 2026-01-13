@@ -6,7 +6,7 @@
 import { LyricEffectContext } from '../../core/Effect';
 import { EffectParameter, slider, enumParam } from '../../core/ParameterTypes';
 import { CharacterLyricEffect } from '../LyricEffect';
-import { clamp, random, degToRad } from '../../utils/MathUtils';
+import { clamp, random } from '../../utils/MathUtils';
 
 interface Fragment {
   x: number;
@@ -42,7 +42,7 @@ export class ExplodeEffect extends CharacterLyricEffect {
   private explodeTime: number = 0;
 
   renderLyric(context: LyricEffectContext): void {
-    const { ctx, lyric, text, fontSize, fontFamily, color, progress, currentTime } = context;
+    const { ctx, lyric, text: _text, fontSize, fontFamily, color, progress, currentTime } = context;
     const characters = this.getCharacters(context);
 
     const explosionForce = this.getParameter<number>('explosionForce') * 50;

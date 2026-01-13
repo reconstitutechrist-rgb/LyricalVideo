@@ -20,7 +20,7 @@ export class RainbowCycleEffect extends CharacterLyricEffect {
   ];
 
   renderLyric(context: LyricEffectContext): void {
-    const { ctx, text, fontSize, fontFamily, currentTime } = context;
+    const { ctx, text: _text, fontSize, fontFamily, currentTime } = context;
     const characters = this.getCharacters(context);
 
     const speed = this.getParameter<number>('speed');

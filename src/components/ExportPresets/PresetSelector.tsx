@@ -3,7 +3,6 @@ import {
   exportPresetsService,
   ExportPreset,
   CustomExportPreset,
-  PLATFORM_PRESETS,
 } from '../../../services/exportPresets';
 import { ExportSettings, AspectRatio } from '../../../types';
 

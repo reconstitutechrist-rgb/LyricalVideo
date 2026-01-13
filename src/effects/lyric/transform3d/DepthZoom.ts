@@ -25,7 +25,7 @@ export class DepthZoomEffect extends CharacterLyricEffect {
   ];
 
   renderLyric(context: LyricEffectContext): void {
-    const { ctx, lyric, text, fontSize, fontFamily, color, progress, currentTime } = context;
+    const { ctx, lyric, text: _text, fontSize, fontFamily, color, progress, currentTime } = context;
     const characters = this.getCharacters(context);
 
     const zoomDirection = this.getParameter<string>('zoomDirection');

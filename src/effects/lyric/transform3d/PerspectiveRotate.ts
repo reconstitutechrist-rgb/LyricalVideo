@@ -6,7 +6,7 @@
 import { LyricEffectContext } from '../../core/Effect';
 import { EffectParameter, slider } from '../../core/ParameterTypes';
 import { CharacterLyricEffect } from '../LyricEffect';
-import { lerp, clamp } from '../../utils/MathUtils';
+import { clamp, lerp, degToRad } from '../../utils/MathUtils';
 
 export class PerspectiveRotateEffect extends CharacterLyricEffect {
   readonly id = 'perspective-rotate';
@@ -18,28 +18,38 @@ export class PerspectiveRotateEffect extends CharacterLyricEffect {
     slider('vanishingPointY', 'Vanishing Point Y', 0.5, 0, 1, 0.05),
     slider('depth', 'Depth Effect', 0.3, 0, 1, 0.05),
     slider('animationSpeed', 'Animation Speed', 0, 0, 2, 0.1),
+    slider('smoothing', 'Transition Smoothing', 0.15, 0.01, 0.5, 0.01),
   ];
 
+  // Track current rotation values for smooth lerp transitions
+  private currentRotX: number = 0;
+  private currentRotY: number = 0;
+
   renderLyric(context: LyricEffectContext): void {
-    const { ctx, text, fontSize, fontFamily, color, currentTime, width, height } = context;
+    const { ctx, text: _text, fontSize, fontFamily, color, currentTime, width, height } = context;
     const characters = this.getCharacters(context);
 
-    let rotationX = this.getParameter<number>('rotationX');
-    let rotationY = this.getParameter<number>('rotationY');
+    let targetRotationX = this.getParameter<number>('rotationX');
+    let targetRotationY = this.getParameter<number>('rotationY');
     const vanishingPointX = this.getParameter<number>('vanishingPointX');
     const vanishingPointY = this.getParameter<number>('vanishingPointY');
     const depth = this.getParameter<number>('depth');
     const animationSpeed = this.getParameter<number>('animationSpeed');
+    const smoothing = this.getParameter<number>('smoothing');
 
     // Animate rotation if speed > 0
     if (animationSpeed > 0) {
-      rotationX = rotationX * Math.sin(currentTime * animationSpeed);
-      rotationY = rotationY * Math.cos(currentTime * animationSpeed * 0.7);
+      targetRotationX = targetRotationX * Math.sin(currentTime * animationSpeed);
+      targetRotationY = targetRotationY * Math.cos(currentTime * animationSpeed * 0.7);
     }
 
-    // Convert to radians
-    const rotXRad = (rotationX * Math.PI) / 180;
-    const rotYRad = (rotationY * Math.PI) / 180;
+    // Smoothly interpolate toward target rotation using lerp
+    this.currentRotX = lerp(this.currentRotX, targetRotationX, smoothing);
+    this.currentRotY = lerp(this.currentRotY, targetRotationY, smoothing);
+
+    // Convert to radians using degToRad utility
+    const rotXRad = degToRad(this.currentRotX);
+    const rotYRad = degToRad(this.currentRotY);
 
     // Calculate vanishing point in canvas coordinates
     const vpX = width * vanishingPointX;
@@ -90,5 +100,10 @@ export class PerspectiveRotateEffect extends CharacterLyricEffect {
 
       ctx.restore();
     }
+  }
+
+  reset(): void {
+    this.currentRotX = 0;
+    this.currentRotY = 0;
   }
 }

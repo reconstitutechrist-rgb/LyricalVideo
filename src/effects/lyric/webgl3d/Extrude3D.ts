@@ -3,7 +3,6 @@
  * Text with true 3D depth/extrusion effect using multiple layered meshes
  */
 
-import * as THREE from 'three';
 import { Text as TroikaText } from 'troika-three-text';
 import { LyricEffectContext } from '../../core/Effect';
 import { EffectParameter, slider, enumParam, boolean } from '../../core/ParameterTypes';
@@ -122,7 +121,7 @@ export class Extrude3DEffect extends WebGL3DEffect {
   }
 
   protected applyTransforms(meshes: CharacterMesh[], context: LyricEffectContext): void {
-    const depth = this.getParameter<number>('depth');
+    const _depth = this.getParameter<number>('depth');
     const bevelSize = this.getParameter<number>('bevelSize');
     const extrudeDirection = this.getParameter<string>('extrudeDirection');
     let rotationY = this.getParameter<number>('rotationY');

@@ -141,12 +141,15 @@ export const VideoPlanPanel: React.FC<VideoPlanPanelProps> = ({
   }, [onboardingStage, audioFile, isProcessingAudio]);
 
   // Handle case where audioFile already exists on mount (e.g., uploaded via left panel but plan failed)
+  // Intentionally run only on mount to check initial state. Including deps would cause
+  // unwanted stage transitions whenever these values change during normal operation.
   React.useEffect(() => {
     if (onboardingStage === 'welcome' && audioFile && !isProcessingAudio && !plan) {
       // Audio was already uploaded, skip to lyrics stage
       setOnboardingStage('lyrics');
     }
-  }, []); // Only run on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Handle plan generation failure - reset to vision stage so user can retry
   React.useEffect(() => {

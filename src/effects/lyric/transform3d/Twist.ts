@@ -6,7 +6,7 @@
 import { LyricEffectContext } from '../../core/Effect';
 import { EffectParameter, slider, enumParam } from '../../core/ParameterTypes';
 import { CharacterLyricEffect } from '../LyricEffect';
-import { degToRad, clamp } from '../../utils/MathUtils';
+import { degToRad } from '../../utils/MathUtils';
 
 export class TwistEffect extends CharacterLyricEffect {
   readonly id = 'twist-3d';
@@ -24,13 +24,21 @@ export class TwistEffect extends CharacterLyricEffect {
   ];
 
   renderLyric(context: LyricEffectContext): void {
-    const { ctx, text, fontSize, fontFamily, color, currentTime, progress } = context;
+    const {
+      ctx,
+      text: _text,
+      fontSize,
+      fontFamily,
+      color,
+      currentTime,
+      progress: _progress,
+    } = context;
     const characters = this.getCharacters(context);
 
     const twistAngle = this.getParameter<number>('twistAngle');
     const twistAxis = this.getParameter<string>('twistAxis');
     const twistSpeed = this.getParameter<number>('twistSpeed');
-    const perspective = this.getParameter<number>('perspective');
+    const _perspective = this.getParameter<number>('perspective');
     const waveAmount = this.getParameter<number>('waveAmount');
 
     ctx.font = `bold ${fontSize}px "${fontFamily}"`;
@@ -38,7 +46,7 @@ export class TwistEffect extends CharacterLyricEffect {
     ctx.textBaseline = 'middle';
 
     const totalChars = characters.length;
-    const centerIndex = totalChars / 2;
+    const _centerIndex = totalChars / 2;
 
     for (const char of characters) {
       // Calculate wave offset based on character position and time

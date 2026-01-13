@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback } from 'react';
 import { SparklesIcon, FilmIcon, MusicalNoteIcon } from '@heroicons/react/24/outline';
 import { EffectInstanceConfig, Genre } from '../../../types';
 import { EffectRegistry } from '../../effects/core/EffectRegistry';
@@ -6,30 +6,74 @@ import { getDefaultValues } from '../../effects/core/ParameterTypes';
 import { EffectCard } from './EffectCard';
 import { EffectSelector } from './EffectSelector';
 import { GenreSelector } from './GenreSelector';
+import { useVisualSettingsStore } from '../../stores';
 
 interface EffectPanelProps {
-  lyricEffects: EffectInstanceConfig[];
-  backgroundEffects: EffectInstanceConfig[];
-  detectedGenre: Genre | null;
+  // Optional props - will use visual settings store if not provided
+  lyricEffects?: EffectInstanceConfig[];
+  backgroundEffects?: EffectInstanceConfig[];
+  detectedGenre?: Genre | null;
+  genreOverride?: Genre | null;
+  onLyricEffectsChange?: (effects: EffectInstanceConfig[]) => void;
+  onBackgroundEffectsChange?: (effects: EffectInstanceConfig[]) => void;
+  onGenreOverride?: (genre: Genre | null) => void;
+  // Required props (session-specific)
   genreConfidence: number;
-  genreOverride: Genre | null;
   isDetectingGenre: boolean;
-  onLyricEffectsChange: (effects: EffectInstanceConfig[]) => void;
-  onBackgroundEffectsChange: (effects: EffectInstanceConfig[]) => void;
-  onGenreOverride: (genre: Genre | null) => void;
 }
 
 export const EffectPanel: React.FC<EffectPanelProps> = ({
-  lyricEffects,
-  backgroundEffects,
-  detectedGenre,
+  lyricEffects: lyricEffectsProp,
+  backgroundEffects: backgroundEffectsProp,
+  detectedGenre: detectedGenreProp,
   genreConfidence,
-  genreOverride,
+  genreOverride: genreOverrideProp,
   isDetectingGenre,
-  onLyricEffectsChange,
-  onBackgroundEffectsChange,
-  onGenreOverride,
+  onLyricEffectsChange: onLyricEffectsChangeProp,
+  onBackgroundEffectsChange: onBackgroundEffectsChangeProp,
+  onGenreOverride: onGenreOverrideProp,
 }) => {
+  // Use visual settings store values with props as override
+  const visualSettingsStore = useVisualSettingsStore();
+  const lyricEffects = lyricEffectsProp ?? visualSettingsStore.lyricEffects;
+  const backgroundEffects = backgroundEffectsProp ?? visualSettingsStore.backgroundEffects;
+  const detectedGenre = detectedGenreProp ?? visualSettingsStore.detectedGenre;
+  const genreOverride = genreOverrideProp ?? visualSettingsStore.genreOverride;
+
+  // Use store actions if props not provided
+  const onLyricEffectsChange = useCallback(
+    (effects: EffectInstanceConfig[]) => {
+      if (onLyricEffectsChangeProp) {
+        onLyricEffectsChangeProp(effects);
+      } else {
+        visualSettingsStore.setLyricEffects(effects);
+      }
+    },
+    [onLyricEffectsChangeProp, visualSettingsStore]
+  );
+
+  const onBackgroundEffectsChange = useCallback(
+    (effects: EffectInstanceConfig[]) => {
+      if (onBackgroundEffectsChangeProp) {
+        onBackgroundEffectsChangeProp(effects);
+      } else {
+        visualSettingsStore.setBackgroundEffects(effects);
+      }
+    },
+    [onBackgroundEffectsChangeProp, visualSettingsStore]
+  );
+
+  const onGenreOverride = useCallback(
+    (genre: Genre | null) => {
+      if (onGenreOverrideProp) {
+        onGenreOverrideProp(genre);
+      } else {
+        visualSettingsStore.setGenreOverride(genre);
+      }
+    },
+    [onGenreOverrideProp, visualSettingsStore]
+  );
+
   // Add effect handlers
   const handleAddLyricEffect = (effectId: string) => {
     const effect = EffectRegistry.createLyricEffect(effectId);

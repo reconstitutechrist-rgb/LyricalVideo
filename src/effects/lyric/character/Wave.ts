@@ -23,7 +23,7 @@ export class WaveEffect extends CharacterLyricEffect {
   ];
 
   renderLyric(context: LyricEffectContext): void {
-    const { ctx, text, fontSize, fontFamily, color, currentTime } = context;
+    const { ctx, text: _text, fontSize, fontFamily, color, currentTime } = context;
     const characters = this.getCharacters(context);
 
     const height = this.getParameter<number>('height');

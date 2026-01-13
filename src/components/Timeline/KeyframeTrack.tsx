@@ -24,10 +24,10 @@ const DEFAULT_KEYFRAME: Omit<TextKeyframe, 'time'> = {
 
 export const KeyframeTrack: React.FC<KeyframeTrackProps> = ({
   lyric,
-  index,
+  index: _index,
   isSelected,
-  pixelsPerSecond,
-  duration,
+  pixelsPerSecond: _pixelsPerSecond,
+  duration: _duration,
   keyframes,
   onKeyframesChange,
   selectedKeyframeIndex,
@@ -36,10 +36,9 @@ export const KeyframeTrack: React.FC<KeyframeTrackProps> = ({
   const [draggingKeyframe, setDraggingKeyframe] = useState<number | null>(null);
 
   // Convert lyric timing to pixels
-  const startX = lyric.startTime * pixelsPerSecond;
-  const endX = lyric.endTime * pixelsPerSecond;
+  const startX = lyric.startTime * _pixelsPerSecond;
+  const endX = lyric.endTime * _pixelsPerSecond;
   const lyricWidth = endX - startX;
-  const lyricDuration = lyric.endTime - lyric.startTime;
 
   // Add a new keyframe on double-click
   const handleDoubleClick = useCallback(

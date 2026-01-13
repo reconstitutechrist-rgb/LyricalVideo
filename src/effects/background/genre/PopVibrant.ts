@@ -6,7 +6,7 @@
 import { EffectContext } from '../../core/Effect';
 import { EffectParameter, slider, boolean } from '../../core/ParameterTypes';
 import { GenreBackgroundEffect } from '../BackgroundEffect';
-import { random, ExtendedEasings, clamp } from '../../utils/MathUtils';
+import { random, ExtendedEasings } from '../../utils/MathUtils';
 
 interface PopShape {
   x: number;
@@ -103,7 +103,7 @@ export class PopVibrantEffect extends GenreBackgroundEffect {
         rotationSpeed: random(-0.02, 0.02),
         vx: random(-1, 1),
         vy: random(-1, 1),
-        bouncePhase: random(0, Math.PI * 2),
+        bouncePhase: random(0, 1), // 0-1 range for use with modulo in bounce cycle
       });
     }
   }
@@ -140,9 +140,17 @@ export class PopVibrantEffect extends GenreBackgroundEffect {
     const bassBoost = bass / 255;
 
     for (const shape of this.shapes) {
-      // Bounce animation
-      const bounce = Math.sin(time * 3 + shape.bouncePhase) * bounceEnergy * 20;
-      const scale = 1 + bassBoost * 0.3 * bounceEnergy;
+      // Bounce animation using ExtendedEasings for dynamic pop effect
+      // Create a cycling 0-1 value from time, then apply bounce easing
+      const cyclePosition = (time * 1.5 + shape.bouncePhase) % 1;
+      const bounceValue = ExtendedEasings.bounce(cyclePosition);
+      const bounce = (bounceValue - 0.5) * 2 * bounceEnergy * 25;
+
+      // Scale also uses bounce easing for extra pop on bass hits
+      const scaleBase = 1 + bassBoost * 0.3 * bounceEnergy;
+      const scaleBounce =
+        bassBoost > 0.5 ? ExtendedEasings.elastic((bassBoost - 0.5) * 2) * 0.2 : 0;
+      const scale = scaleBase + scaleBounce * bounceEnergy;
 
       // Move shapes
       shape.x += shape.vx * (1 + bassBoost);

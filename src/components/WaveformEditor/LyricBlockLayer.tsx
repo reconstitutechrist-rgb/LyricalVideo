@@ -2,7 +2,6 @@ import React, { useState, useCallback, useEffect } from 'react';
 import { LyricBlockLayerProps, DragState } from './types';
 import {
   timeToPixel,
-  pixelToTime,
   clamp,
   isTimeRangeVisible,
   getSectionColor,

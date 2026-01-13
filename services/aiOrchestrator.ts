@@ -16,6 +16,26 @@ import * as gemini from './geminiService';
 import * as claude from './claudeService';
 
 /**
+ * Helper to check if an error is an abort error
+ */
+function isAbortError(error: unknown): boolean {
+  return (
+    (error instanceof DOMException && error.name === 'AbortError') ||
+    (error instanceof Error && error.name === 'AbortError')
+  );
+}
+
+/**
+ * Helper to throw if signal is aborted
+ */
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    const error = new DOMException('Request aborted', 'AbortError');
+    throw error;
+  }
+}
+
+/**
  * Calculate consensus between Gemini and Claude analysis results
  */
 export const calculateConsensus = (
@@ -141,32 +161,41 @@ export const decideBackgroundStrategy = (
 export const runFullAnalysis = async (
   audioFile: File,
   userLyrics?: string,
-  onProgress?: (status: string) => void
+  onProgress?: (status: string) => void,
+  signal?: AbortSignal
 ): Promise<{
   lyrics: LyricLine[];
   metadata: SongMetadata;
   analysis: CrossVerifiedAnalysis;
   emotionalPeaks: EmotionalPeak[];
 }> => {
+  throwIfAborted(signal);
   onProgress?.('Analyzing audio with Gemini...');
 
   // Step 1: Run Gemini analysis in parallel
   const [geminiGenreResult, lyricsResult] = await Promise.all([
-    gemini.detectMusicGenre(audioFile),
-    gemini.analyzeAudioAndGetLyrics(audioFile, userLyrics),
+    gemini.detectMusicGenre(audioFile, signal),
+    gemini.analyzeAudioAndGetLyrics(audioFile, userLyrics, signal),
   ]);
 
+  throwIfAborted(signal);
   onProgress?.('Cross-verifying with Claude...');
 
   // Step 2: Cross-verify with Claude (using lyrics and metadata for text-based verification)
   let claudeResult: GenreDetectionResult;
   try {
+    // Check for abort before Claude call (Claude SDK doesn't support abort signals directly)
+    throwIfAborted(signal);
     claudeResult = await claude.verifyAnalysisWithClaude(
       geminiGenreResult,
       lyricsResult.lyrics,
       lyricsResult.metadata
     );
   } catch (error) {
+    // Re-throw abort errors
+    if (isAbortError(error)) {
+      throw error;
+    }
     console.warn('Claude verification failed, using Gemini result only:', error);
     // Fall back to Gemini-only if Claude fails
     claudeResult = {
@@ -178,10 +207,11 @@ export const runFullAnalysis = async (
   // Step 3: Calculate consensus
   const consensus = calculateConsensus(geminiGenreResult, claudeResult);
 
+  throwIfAborted(signal);
   onProgress?.('Detecting emotional peaks...');
 
   // Step 4: Detect emotional peaks
-  const peaks = await gemini.detectEmotionalPeaks(lyricsResult.lyrics, audioFile);
+  const peaks = await gemini.detectEmotionalPeaks(lyricsResult.lyrics, audioFile, signal);
 
   return {
     lyrics: lyricsResult.lyrics,
@@ -199,15 +229,20 @@ export const generateFullVideoPlan = async (
   userLyrics?: string,
   userCreativeVision?: string,
   aspectRatio: AspectRatio = '16:9',
-  onProgress?: (status: string) => void
+  onProgress?: (status: string) => void,
+  signal?: AbortSignal
 ): Promise<VideoPlan> => {
+  throwIfAborted(signal);
+
   // Step 1: Run full analysis
   const { lyrics, analysis, emotionalPeaks } = await runFullAnalysis(
     audioFile,
     userLyrics,
-    onProgress
+    onProgress,
+    signal
   );
 
+  throwIfAborted(signal);
   onProgress?.('Generating video plan...');
 
   // Step 2: Generate the video plan
@@ -216,22 +251,26 @@ export const generateFullVideoPlan = async (
     analysis,
     emotionalPeaks,
     lyrics,
-    userCreativeVision
+    userCreativeVision,
+    signal
   );
 
   // Step 3: AI decides background strategy
   const backgroundStrategy = decideBackgroundStrategy(analysis, emotionalPeaks, userCreativeVision);
 
   // Step 4: Generate background based on AI decision
+  throwIfAborted(signal);
   onProgress?.('Generating background...');
   let sharedBackground: GeneratedAsset | null = null;
 
   try {
     if (backgroundStrategy.useVideo) {
+      throwIfAborted(signal);
       onProgress?.('Generating motion background (this may take 1-2 minutes)...');
       const videoUrl = await gemini.generateVideoBackground(
         backgroundStrategy.videoPrompt!,
-        aspectRatio === '9:16' ? '9:16' : '16:9'
+        aspectRatio === '9:16' ? '9:16' : '16:9',
+        signal
       );
       sharedBackground = {
         type: 'video',
@@ -239,11 +278,13 @@ export const generateFullVideoPlan = async (
         prompt: backgroundStrategy.videoPrompt!,
       };
     } else if (backgroundStrategy.imagePrompt) {
+      throwIfAborted(signal);
       onProgress?.('Generating static background...');
       const imageUrl = await gemini.generateBackground(
         backgroundStrategy.imagePrompt,
         aspectRatio,
-        '2K'
+        '2K',
+        signal
       );
       sharedBackground = {
         type: 'image',
@@ -252,10 +293,15 @@ export const generateFullVideoPlan = async (
       };
     }
   } catch (error) {
+    // Re-throw abort errors
+    if (isAbortError(error)) {
+      throw error;
+    }
     console.warn('Background generation failed, continuing without background:', error);
     // Continue without background - user can generate later
   }
 
+  throwIfAborted(signal);
   onProgress?.('Generating peak visuals...');
 
   // Step 5: Generate visuals for high-intensity peaks (parallel)
@@ -269,11 +315,14 @@ export const generateFullVideoPlan = async (
 
     const visualPromises = peaksToGenerate.map(async (peak) => {
       try {
+        // Check for abort before each peak generation
+        throwIfAborted(signal);
         const asset = await gemini.generatePeakVisual(
           peak,
           lyrics,
           planWithoutVisuals.mood,
-          aspectRatio
+          aspectRatio,
+          signal
         );
         return {
           peakId: peak.id,
@@ -283,6 +332,10 @@ export const generateFullVideoPlan = async (
           transitionOut: 'fade' as const,
         };
       } catch (error) {
+        // Re-throw abort errors
+        if (isAbortError(error)) {
+          throw error;
+        }
         console.warn(`Failed to generate visual for peak ${peak.id}:`, error);
         return null;
       }
@@ -316,9 +369,11 @@ export const regeneratePeakVisual = async (
   peak: EmotionalPeak,
   lyrics: LyricLine[],
   plan: VideoPlan,
-  aspectRatio: AspectRatio = '16:9'
+  aspectRatio: AspectRatio = '16:9',
+  signal?: AbortSignal
 ): Promise<PeakVisual> => {
-  const asset = await gemini.generatePeakVisual(peak, lyrics, plan.mood, aspectRatio);
+  throwIfAborted(signal);
+  const asset = await gemini.generatePeakVisual(peak, lyrics, plan.mood, aspectRatio, signal);
 
   return {
     peakId: peak.id,
@@ -335,11 +390,13 @@ export const regeneratePeakVisual = async (
 export const modifyPlan = async (
   currentPlan: VideoPlan,
   instruction: string,
-  onProgress?: (status: string) => void
+  onProgress?: (status: string) => void,
+  signal?: AbortSignal
 ): Promise<VideoPlan> => {
+  throwIfAborted(signal);
   onProgress?.(`Modifying plan: "${instruction}"...`);
 
-  const modifiedPlan = await gemini.modifyVideoPlan(currentPlan, instruction);
+  const modifiedPlan = await gemini.modifyVideoPlan(currentPlan, instruction, signal);
 
   onProgress?.('Plan updated!');
 
@@ -352,16 +409,18 @@ export const modifyPlan = async (
  */
 export const quickAnalysis = async (
   audioFile: File,
-  onProgress?: (status: string) => void
+  onProgress?: (status: string) => void,
+  signal?: AbortSignal
 ): Promise<{
   genre: Genre;
   mood: string;
   confidence: number;
   suggestedStyle: string;
 }> => {
+  throwIfAborted(signal);
   onProgress?.('Quick analysis...');
 
-  const result = await gemini.detectMusicGenre(audioFile);
+  const result = await gemini.detectMusicGenre(audioFile, signal);
 
   return {
     genre: result.genre,

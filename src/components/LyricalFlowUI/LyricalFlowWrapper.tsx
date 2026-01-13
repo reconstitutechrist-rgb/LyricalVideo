@@ -70,7 +70,7 @@ export const LyricalFlowWrapper: React.FC<LyricalFlowWrapperProps> = ({
   audioRef,
   duration,
   canvasRef,
-  mediaStreamDestRef,
+  mediaStreamDestRef: _mediaStreamDestRef,
 }) => {
   // Local state for animation speed (maps to visualSettings.particleSpeed)
   const [animationSpeed, setAnimationSpeed] = useState(state.visualSettings.particleSpeed);
@@ -820,8 +820,7 @@ export const LyricalFlowWrapper: React.FC<LyricalFlowWrapperProps> = ({
       {/* Visualizer as the center content */}
       {state.audioUrl && (
         <Visualizer
-          canvasRef={canvasRef}
-          mediaStreamDestRef={mediaStreamDestRef}
+          ref={canvasRef}
           audioUrl={state.audioUrl}
           lyrics={state.lyrics}
           style={state.currentStyle}
@@ -829,11 +828,19 @@ export const LyricalFlowWrapper: React.FC<LyricalFlowWrapperProps> = ({
           currentTime={state.currentTime}
           backgroundAsset={state.backgroundAsset}
           aspectRatio={state.aspectRatio}
-          visualSettings={state.visualSettings}
+          settings={state.visualSettings}
           lyricEffects={state.lyricEffects}
           backgroundEffects={state.backgroundEffects}
-          detectedGenre={state.detectedGenre}
-          audioBuffer={state.audioBuffer}
+          activeGenre={state.detectedGenre}
+          onTimeUpdate={(time) => setState((prev) => ({ ...prev, currentTime: time }))}
+          setAudioElement={() => {}}
+          setMediaStreamDestination={() => {}}
+          editMode={editMode}
+          activeKeyframeIndex={null}
+          selectedLyricIndex={
+            selectedLyricIndices.size > 0 ? Array.from(selectedLyricIndices)[0] : null
+          }
+          onKeyframeUpdate={() => {}}
         />
       )}
     </LyricalFlowUI>

@@ -6,7 +6,7 @@
 import { EffectContext } from '../../core/Effect';
 import { EffectParameter, slider, boolean } from '../../core/ParameterTypes';
 import { GenreBackgroundEffect } from '../BackgroundEffect';
-import { random, clamp } from '../../utils/MathUtils';
+import { random } from '../../utils/MathUtils';
 
 interface GraffitiShape {
   x: number;

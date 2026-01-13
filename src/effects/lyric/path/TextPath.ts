@@ -45,7 +45,7 @@ export class TextPathEffect extends CharacterLyricEffect {
   renderLyric(context: LyricEffectContext): void {
     const {
       ctx,
-      text,
+      text: _text,
       x,
       y,
       fontSize,
