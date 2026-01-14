@@ -1,0 +1,635 @@
+import { ControlDefinition } from './types';
+
+// ============================================================================
+// CONTROL REGISTRY
+// Central registry of all controllable UI elements
+// ============================================================================
+
+export const CONTROL_REGISTRY: ControlDefinition[] = [
+  // ============================================
+  // BASIC CONTROLS (Simple Mode)
+  // ============================================
+  {
+    id: 'animation-speed',
+    displayName: 'Animation Speed',
+    description: 'Controls how fast visual animations play, from slow (0.5x) to fast (3x)',
+    storePath: 'visualSettings.particleSpeed',
+    storeType: 'visualSettings',
+    domSelector: '[data-control-id="animation-speed"]',
+    panelLocation: 'left',
+    sectionName: 'FX Controls',
+    controlType: 'slider',
+    valueType: 'number',
+    validValues: { min: 0.5, max: 3, step: 0.1 },
+    requiresAdvancedMode: false,
+    synonyms: [
+      'speed',
+      'animation speed',
+      'how fast',
+      'tempo',
+      'pace',
+      'velocity',
+      'particle speed',
+    ],
+    actionVerbs: [
+      'speed up',
+      'slow down',
+      'increase',
+      'decrease',
+      'set',
+      'make faster',
+      'make slower',
+    ],
+  },
+  {
+    id: 'bass-shake',
+    displayName: 'Bass Shake',
+    description: 'Enables camera shake effect that reacts to bass frequencies in the music',
+    storePath: 'visualSettings.cameraShake',
+    storeType: 'visualSettings',
+    domSelector: '[data-control-id="bass-shake"]',
+    panelLocation: 'left',
+    sectionName: 'FX Controls',
+    controlType: 'toggle',
+    valueType: 'boolean',
+    requiresAdvancedMode: false,
+    synonyms: [
+      'bass shake',
+      'shake',
+      'camera shake',
+      'bass reactive',
+      'vibration',
+      'screen shake',
+      'bass effect',
+    ],
+    actionVerbs: ['enable', 'disable', 'turn on', 'turn off', 'toggle', 'activate', 'deactivate'],
+  },
+  {
+    id: 'visual-style',
+    displayName: 'Visual Style',
+    description:
+      'The overall visual theme: Neon Pulse, Liquid Dream, Glitch Cyber, Cinematic, Minimal, Kaleidoscope, or Chromatic Wave',
+    storePath: 'currentStyle',
+    storeType: 'visualSettings',
+    domSelector: '[data-control-id="visual-style"]',
+    panelLocation: 'left',
+    sectionName: 'Visual Direction',
+    controlType: 'button-group',
+    valueType: 'enum',
+    validValues: [
+      'NEON_PULSE',
+      'LIQUID_DREAM',
+      'GLITCH_CYBER',
+      'CINEMATIC_BACKDROP',
+      'MINIMAL_TYPE',
+      'KALEIDOSCOPE',
+      'CHROMATIC_WAVE',
+    ],
+    requiresAdvancedMode: false,
+    synonyms: ['style', 'visual style', 'theme', 'look', 'aesthetic', 'visual theme', 'design'],
+    actionVerbs: ['use', 'set', 'change to', 'switch to', 'make it', 'apply'],
+  },
+
+  // ============================================
+  // ADVANCED CONTROLS
+  // ============================================
+  {
+    id: 'reactivity-intensity',
+    displayName: 'Reactivity Intensity',
+    description: 'How strongly visuals react to audio, from subtle (0.5x) to intense (3x)',
+    storePath: 'visualSettings.reactivityIntensity',
+    storeType: 'visualSettings',
+    domSelector: '[data-control-id="reactivity-intensity"]',
+    panelLocation: 'left',
+    sectionName: 'Advanced FX',
+    controlType: 'slider',
+    valueType: 'number',
+    validValues: { min: 0.5, max: 3, step: 0.1 },
+    requiresAdvancedMode: true,
+    synonyms: [
+      'reactivity',
+      'audio reactivity',
+      'intensity',
+      'responsiveness',
+      'reactive',
+      'audio response',
+      'music reactivity',
+      'energy',
+      'energetic',
+    ],
+    actionVerbs: [
+      'increase',
+      'decrease',
+      'make more',
+      'make less',
+      'intensify',
+      'boost',
+      'reduce',
+      'amp up',
+    ],
+  },
+  {
+    id: 'shake-intensity',
+    displayName: 'Shake Intensity',
+    description: 'How strong the bass shake effect is when enabled (0.5-3x)',
+    storePath: 'visualSettings.shakeIntensity',
+    storeType: 'visualSettings',
+    domSelector: '[data-control-id="shake-intensity"]',
+    panelLocation: 'left',
+    sectionName: 'Advanced FX',
+    controlType: 'slider',
+    valueType: 'number',
+    validValues: { min: 0.5, max: 3, step: 0.1 },
+    requiresAdvancedMode: true,
+    synonyms: [
+      'shake intensity',
+      'shake strength',
+      'shake power',
+      'vibration intensity',
+      'shake amount',
+    ],
+    actionVerbs: ['increase', 'decrease', 'strengthen', 'weaken', 'boost', 'reduce'],
+  },
+  {
+    id: 'color-palette',
+    displayName: 'Color Palette',
+    description: 'The color scheme: neon, sunset, ocean, matrix, or fire',
+    storePath: 'visualSettings.colorPalette',
+    storeType: 'visualSettings',
+    domSelector: '[data-control-id="color-palette"]',
+    panelLocation: 'left',
+    sectionName: 'Advanced Styling',
+    controlType: 'button-group',
+    valueType: 'enum',
+    validValues: ['neon', 'sunset', 'ocean', 'matrix', 'fire'],
+    requiresAdvancedMode: true,
+    synonyms: [
+      'colors',
+      'color palette',
+      'color scheme',
+      'palette',
+      'color theme',
+      'colours',
+      'hues',
+    ],
+    actionVerbs: ['use', 'set', 'change to', 'switch to', 'apply'],
+  },
+  {
+    id: 'text-animation',
+    displayName: 'Text Animation',
+    description: 'How lyrics animate onto screen: None, Typewriter, Fade Chars, Kinetic, or Bounce',
+    storePath: 'visualSettings.textAnimation',
+    storeType: 'visualSettings',
+    domSelector: '[data-control-id="text-animation"]',
+    panelLocation: 'left',
+    sectionName: 'Advanced Styling',
+    controlType: 'dropdown',
+    valueType: 'enum',
+    validValues: ['NONE', 'TYPEWRITER', 'FADE_CHARS', 'KINETIC', 'BOUNCE'],
+    requiresAdvancedMode: true,
+    synonyms: [
+      'text animation',
+      'lyric animation',
+      'text effect',
+      'how text appears',
+      'text transition',
+      'lyric effect',
+      'text entrance',
+    ],
+    actionVerbs: ['use', 'set', 'change to', 'make', 'apply'],
+  },
+  {
+    id: 'dynamic-bg-pulse',
+    displayName: 'Dynamic Background Pulse',
+    description: 'Makes the background pulse in sync with audio beats',
+    storePath: 'visualSettings.dynamicBackgroundPulse',
+    storeType: 'visualSettings',
+    domSelector: '[data-control-id="dynamic-bg-pulse"]',
+    panelLocation: 'left',
+    sectionName: 'Advanced FX',
+    controlType: 'toggle',
+    valueType: 'boolean',
+    requiresAdvancedMode: true,
+    synonyms: [
+      'background pulse',
+      'bg pulse',
+      'pulsing background',
+      'beat pulse',
+      'background beat',
+      'pulsing',
+    ],
+    actionVerbs: ['enable', 'disable', 'turn on', 'turn off', 'toggle', 'activate'],
+  },
+  {
+    id: 'particle-trails',
+    displayName: 'Particle Trails',
+    description: 'Adds motion trails to floating particles for a more dynamic effect',
+    storePath: 'visualSettings.particleTrails',
+    storeType: 'visualSettings',
+    domSelector: '[data-control-id="particle-trails"]',
+    panelLocation: 'left',
+    sectionName: 'Advanced FX',
+    controlType: 'toggle',
+    valueType: 'boolean',
+    requiresAdvancedMode: true,
+    synonyms: [
+      'trails',
+      'particle trails',
+      'motion trails',
+      'particle effects',
+      'trail effect',
+      'comet trails',
+    ],
+    actionVerbs: ['enable', 'disable', 'turn on', 'turn off', 'toggle', 'add', 'remove'],
+  },
+  {
+    id: 'blend-mode',
+    displayName: 'Blend Mode',
+    description: 'How visual layers blend together: Normal, Multiply, Screen, Overlay, etc.',
+    storePath: 'visualSettings.blendMode',
+    storeType: 'visualSettings',
+    domSelector: '[data-control-id="blend-mode"]',
+    panelLocation: 'left',
+    sectionName: 'Advanced FX',
+    controlType: 'dropdown',
+    valueType: 'enum',
+    validValues: [
+      'source-over',
+      'multiply',
+      'screen',
+      'overlay',
+      'darken',
+      'lighten',
+      'color-dodge',
+      'color-burn',
+      'hard-light',
+      'soft-light',
+      'difference',
+      'exclusion',
+    ],
+    requiresAdvancedMode: true,
+    synonyms: [
+      'blend mode',
+      'blending',
+      'layer blend',
+      'composite mode',
+      'blend effect',
+      'mixing mode',
+    ],
+    actionVerbs: ['use', 'set', 'change to', 'apply'],
+  },
+  {
+    id: 'frequency-mapping-pulse',
+    displayName: 'Frequency Mapping - Pulse',
+    description:
+      'Which audio frequency drives the pulse/size effect: bass, mid, treble, avg, beat, or energy',
+    storePath: 'visualSettings.frequencyMapping.pulse',
+    storeType: 'visualSettings',
+    domSelector: '[data-control-id="frequency-mapping-pulse"]',
+    panelLocation: 'left',
+    sectionName: 'Advanced FX',
+    controlType: 'dropdown',
+    valueType: 'enum',
+    validValues: ['bass', 'mid', 'treble', 'avg', 'beat', 'energy'],
+    requiresAdvancedMode: true,
+    synonyms: ['pulse frequency', 'pulse mapping', 'pulse trigger', 'pulse source'],
+    actionVerbs: ['map to', 'set', 'link to', 'connect to'],
+  },
+  {
+    id: 'frequency-mapping-motion',
+    displayName: 'Frequency Mapping - Motion',
+    description:
+      'Which audio frequency drives motion/movement: bass, mid, treble, avg, beat, or energy',
+    storePath: 'visualSettings.frequencyMapping.motion',
+    storeType: 'visualSettings',
+    domSelector: '[data-control-id="frequency-mapping-motion"]',
+    panelLocation: 'left',
+    sectionName: 'Advanced FX',
+    controlType: 'dropdown',
+    valueType: 'enum',
+    validValues: ['bass', 'mid', 'treble', 'avg', 'beat', 'energy'],
+    requiresAdvancedMode: true,
+    synonyms: ['motion frequency', 'motion mapping', 'movement trigger', 'motion source'],
+    actionVerbs: ['map to', 'set', 'link to', 'connect to'],
+  },
+  {
+    id: 'frequency-mapping-color',
+    displayName: 'Frequency Mapping - Color',
+    description:
+      'Which audio frequency drives color shifts: bass, mid, treble, avg, beat, or energy',
+    storePath: 'visualSettings.frequencyMapping.color',
+    storeType: 'visualSettings',
+    domSelector: '[data-control-id="frequency-mapping-color"]',
+    panelLocation: 'left',
+    sectionName: 'Advanced FX',
+    controlType: 'dropdown',
+    valueType: 'enum',
+    validValues: ['bass', 'mid', 'treble', 'avg', 'beat', 'energy'],
+    requiresAdvancedMode: true,
+    synonyms: ['color frequency', 'color mapping', 'color trigger', 'color source'],
+    actionVerbs: ['map to', 'set', 'link to', 'connect to'],
+  },
+  {
+    id: 'aspect-ratio',
+    displayName: 'Aspect Ratio',
+    description:
+      'Video dimensions: 9:16 (vertical/TikTok), 16:9 (horizontal/YouTube), 1:1 (square)',
+    storePath: 'aspectRatio',
+    storeType: 'visualSettings',
+    domSelector: '[data-control-id="aspect-ratio"]',
+    panelLocation: 'left',
+    sectionName: 'Advanced Input',
+    controlType: 'button-group',
+    valueType: 'enum',
+    validValues: ['9:16', '16:9', '1:1', '4:3', '3:4', '21:9'],
+    requiresAdvancedMode: true,
+    synonyms: [
+      'aspect ratio',
+      'dimensions',
+      'video size',
+      'format',
+      'orientation',
+      'ratio',
+      'portrait',
+      'landscape',
+      'square',
+      'vertical',
+      'horizontal',
+    ],
+    actionVerbs: ['use', 'set', 'change to', 'make', 'switch to'],
+  },
+  {
+    id: 'genre',
+    displayName: 'Genre Override',
+    description: 'Override detected genre for genre-specific visual presets',
+    storePath: 'genreOverride',
+    storeType: 'visualSettings',
+    domSelector: '[data-control-id="genre"]',
+    panelLocation: 'left',
+    sectionName: 'Genre Detection',
+    controlType: 'dropdown',
+    valueType: 'enum',
+    validValues: [
+      'hiphop',
+      'rock',
+      'electronic',
+      'classical',
+      'pop',
+      'indie',
+      'rnb',
+      'jazz',
+      'country',
+      'metal',
+    ],
+    requiresAdvancedMode: true,
+    synonyms: ['genre', 'music genre', 'style of music', 'music style', 'genre type'],
+    actionVerbs: ['set', 'use', 'treat as', 'make it', 'change to', 'override to'],
+  },
+  {
+    id: 'ui-mode',
+    displayName: 'UI Mode',
+    description: 'Switch between Simple mode (essential controls) and Advanced mode (all features)',
+    storePath: 'isAdvancedMode',
+    storeType: 'uiMode',
+    domSelector: '[data-control-id="ui-mode"]',
+    panelLocation: 'left',
+    sectionName: 'Header',
+    controlType: 'toggle',
+    valueType: 'boolean',
+    requiresAdvancedMode: false,
+    synonyms: [
+      'mode',
+      'ui mode',
+      'simple mode',
+      'advanced mode',
+      'expert mode',
+      'basic mode',
+      'pro mode',
+    ],
+    actionVerbs: ['switch to', 'enable', 'use', 'toggle', 'change to'],
+  },
+];
+
+// ============================================================================
+// LOOKUP FUNCTIONS
+// ============================================================================
+
+/**
+ * Find a control by its ID
+ */
+export function findControlById(id: string): ControlDefinition | undefined {
+  return CONTROL_REGISTRY.find((c) => c.id === id);
+}
+
+/**
+ * Find controls that match natural language text
+ */
+export function findControlsByNaturalLanguage(query: string): ControlDefinition[] {
+  const normalizedQuery = query.toLowerCase();
+
+  return CONTROL_REGISTRY.filter(
+    (control) =>
+      control.synonyms.some((syn) => normalizedQuery.includes(syn.toLowerCase())) ||
+      control.displayName.toLowerCase().includes(normalizedQuery)
+  );
+}
+
+/**
+ * Get all controls that require Advanced mode
+ */
+export function getControlsRequiringAdvancedMode(): ControlDefinition[] {
+  return CONTROL_REGISTRY.filter((c) => c.requiresAdvancedMode);
+}
+
+/**
+ * Get controls in a specific section
+ */
+export function getControlsBySection(sectionName: string): ControlDefinition[] {
+  return CONTROL_REGISTRY.filter((c) => c.sectionName === sectionName);
+}
+
+/**
+ * Get all unique section names
+ */
+export function getAllSections(): string[] {
+  return [...new Set(CONTROL_REGISTRY.map((c) => c.sectionName))];
+}
+
+// ============================================================================
+// VALUE ALIASES
+// Maps user-friendly terms to actual enum values
+// ============================================================================
+
+export const VALUE_ALIASES: Record<string, Record<string, string>> = {
+  // Visual Styles
+  'visual-style': {
+    neon: 'NEON_PULSE',
+    'neon pulse': 'NEON_PULSE',
+    pulse: 'NEON_PULSE',
+    cyberpunk: 'NEON_PULSE',
+    electric: 'NEON_PULSE',
+    liquid: 'LIQUID_DREAM',
+    'liquid dream': 'LIQUID_DREAM',
+    dream: 'LIQUID_DREAM',
+    wavy: 'LIQUID_DREAM',
+    fluid: 'LIQUID_DREAM',
+    glitch: 'GLITCH_CYBER',
+    'glitch cyber': 'GLITCH_CYBER',
+    cyber: 'GLITCH_CYBER',
+    digital: 'GLITCH_CYBER',
+    broken: 'GLITCH_CYBER',
+    cinematic: 'CINEMATIC_BACKDROP',
+    movie: 'CINEMATIC_BACKDROP',
+    film: 'CINEMATIC_BACKDROP',
+    dramatic: 'CINEMATIC_BACKDROP',
+    backdrop: 'CINEMATIC_BACKDROP',
+    minimal: 'MINIMAL_TYPE',
+    minimalist: 'MINIMAL_TYPE',
+    simple: 'MINIMAL_TYPE',
+    clean: 'MINIMAL_TYPE',
+    typography: 'MINIMAL_TYPE',
+    kaleidoscope: 'KALEIDOSCOPE',
+    psychedelic: 'KALEIDOSCOPE',
+    trippy: 'KALEIDOSCOPE',
+    chromatic: 'CHROMATIC_WAVE',
+    'chromatic wave': 'CHROMATIC_WAVE',
+    wave: 'CHROMATIC_WAVE',
+    rainbow: 'CHROMATIC_WAVE',
+  },
+  // Color Palettes
+  'color-palette': {
+    neon: 'neon',
+    'neon colors': 'neon',
+    cyan: 'neon',
+    pink: 'neon',
+    electric: 'neon',
+    sunset: 'sunset',
+    warm: 'sunset',
+    orange: 'sunset',
+    golden: 'sunset',
+    ocean: 'ocean',
+    blue: 'ocean',
+    sea: 'ocean',
+    water: 'ocean',
+    cool: 'ocean',
+    matrix: 'matrix',
+    green: 'matrix',
+    hacker: 'matrix',
+    fire: 'fire',
+    red: 'fire',
+    flame: 'fire',
+    hot: 'fire',
+    burning: 'fire',
+  },
+  // Text Animations
+  'text-animation': {
+    none: 'NONE',
+    off: 'NONE',
+    static: 'NONE',
+    typewriter: 'TYPEWRITER',
+    typing: 'TYPEWRITER',
+    type: 'TYPEWRITER',
+    fade: 'FADE_CHARS',
+    'fade chars': 'FADE_CHARS',
+    fading: 'FADE_CHARS',
+    kinetic: 'KINETIC',
+    dynamic: 'KINETIC',
+    moving: 'KINETIC',
+    bounce: 'BOUNCE',
+    bouncy: 'BOUNCE',
+    bouncing: 'BOUNCE',
+  },
+  // Blend Modes
+  'blend-mode': {
+    normal: 'source-over',
+    default: 'source-over',
+    multiply: 'multiply',
+    darken: 'multiply',
+    screen: 'screen',
+    brighten: 'screen',
+    overlay: 'overlay',
+    'hard light': 'hard-light',
+    'soft light': 'soft-light',
+    difference: 'difference',
+    exclusion: 'exclusion',
+  },
+  // Aspect Ratios
+  'aspect-ratio': {
+    vertical: '9:16',
+    portrait: '9:16',
+    tiktok: '9:16',
+    reels: '9:16',
+    shorts: '9:16',
+    horizontal: '16:9',
+    landscape: '16:9',
+    youtube: '16:9',
+    widescreen: '16:9',
+    square: '1:1',
+    instagram: '1:1',
+    ultrawide: '21:9',
+    cinematic: '21:9',
+  },
+  // Genres
+  genre: {
+    'hip hop': 'hiphop',
+    'hip-hop': 'hiphop',
+    rap: 'hiphop',
+    trap: 'hiphop',
+    rock: 'rock',
+    alternative: 'rock',
+    edm: 'electronic',
+    electronic: 'electronic',
+    techno: 'electronic',
+    house: 'electronic',
+    classical: 'classical',
+    orchestral: 'classical',
+    pop: 'pop',
+    'top 40': 'pop',
+    indie: 'indie',
+    'indie rock': 'indie',
+    rnb: 'rnb',
+    'r&b': 'rnb',
+    soul: 'rnb',
+    jazz: 'jazz',
+    swing: 'jazz',
+    country: 'country',
+    folk: 'country',
+    metal: 'metal',
+    'heavy metal': 'metal',
+    hardcore: 'metal',
+  },
+  // UI Mode
+  'ui-mode': {
+    simple: 'false',
+    basic: 'false',
+    easy: 'false',
+    advanced: 'true',
+    expert: 'true',
+    pro: 'true',
+    full: 'true',
+  },
+};
+
+/**
+ * Resolve an alias to its actual value
+ */
+export function resolveValueAlias(controlId: string, userValue: string): string | null {
+  const aliases = VALUE_ALIASES[controlId];
+  if (!aliases) return null;
+
+  const normalizedValue = userValue.toLowerCase().trim();
+
+  // Direct match
+  if (aliases[normalizedValue]) {
+    return aliases[normalizedValue];
+  }
+
+  // Partial match
+  for (const [alias, value] of Object.entries(aliases)) {
+    if (normalizedValue.includes(alias) || alias.includes(normalizedValue)) {
+      return value;
+    }
+  }
+
+  return null;
+}

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { LyricalFlowUI } from './LyricalFlowUI';
 import Visualizer from '../../../components/Visualizer';
 import {
@@ -16,6 +16,8 @@ import {
   WordTiming,
   SyllableTiming,
 } from '../../../types';
+import { AIControlCommand, getMergedSettingsForTime } from '../../systems/aiControl';
+import { useLyricsStore } from '../../stores/lyricsStore';
 
 /**
  * LyricalFlowWrapper
@@ -52,6 +54,15 @@ export interface LyricalFlowWrapperProps {
   // Canvas Ref for Visualizer
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
   mediaStreamDestRef: React.RefObject<MediaStreamAudioDestinationNode | null>;
+
+  // AI Control
+  aiControlPending?: {
+    message: string;
+    commands: AIControlCommand[];
+    controlNames: string[];
+  } | null;
+  onAiControlApply?: () => void;
+  onAiControlShowOnly?: () => void;
 }
 
 export const LyricalFlowWrapper: React.FC<LyricalFlowWrapperProps> = ({
@@ -71,6 +82,9 @@ export const LyricalFlowWrapper: React.FC<LyricalFlowWrapperProps> = ({
   duration,
   canvasRef,
   mediaStreamDestRef: _mediaStreamDestRef,
+  aiControlPending,
+  onAiControlApply,
+  onAiControlShowOnly,
 }) => {
   // Local state for animation speed (maps to visualSettings.particleSpeed)
   const [animationSpeed, setAnimationSpeed] = useState(state.visualSettings.particleSpeed);
@@ -81,6 +95,11 @@ export const LyricalFlowWrapper: React.FC<LyricalFlowWrapperProps> = ({
 
   // Local state for recording
   const [isRecordingMic, setIsRecordingMic] = useState(false);
+
+  // Merge visual settings with section overrides based on current time
+  const mergedVisualSettings = useMemo(() => {
+    return getMergedSettingsForTime(state.currentTime, state.lyrics, state.visualSettings);
+  }, [state.currentTime, state.lyrics, state.visualSettings]);
 
   // Find current lyric based on currentTime
   const getCurrentLyricText = useCallback((): string => {
@@ -712,6 +731,12 @@ export const LyricalFlowWrapper: React.FC<LyricalFlowWrapperProps> = ({
     return () => audio.removeEventListener('timeupdate', handleTimeUpdate);
   }, [audioRef, setState]);
 
+  // Sync selection state to lyricsStore for AI control system
+  useEffect(() => {
+    const lyricsStore = useLyricsStore.getState();
+    lyricsStore.setSelectedIndices(selectedLyricIndices);
+  }, [selectedLyricIndices]);
+
   // ========================================
   // Render
   // ========================================
@@ -816,6 +841,10 @@ export const LyricalFlowWrapper: React.FC<LyricalFlowWrapperProps> = ({
       onApplyMotionPreset={handleApplyMotionPreset}
       // Display
       currentLyricText={getCurrentLyricText()}
+      // AI Control
+      aiControlPending={aiControlPending}
+      onAiControlApply={onAiControlApply}
+      onAiControlShowOnly={onAiControlShowOnly}
     >
       {/* Visualizer as the center content */}
       {state.audioUrl && (
@@ -828,7 +857,7 @@ export const LyricalFlowWrapper: React.FC<LyricalFlowWrapperProps> = ({
           currentTime={state.currentTime}
           backgroundAsset={state.backgroundAsset}
           aspectRatio={state.aspectRatio}
-          settings={state.visualSettings}
+          settings={mergedVisualSettings}
           lyricEffects={state.lyricEffects}
           backgroundEffects={state.backgroundEffects}
           activeGenre={state.detectedGenre}

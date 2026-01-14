@@ -48,6 +48,8 @@ import {
   syncLyricsWithPrecision,
 } from './services/geminiService';
 import * as aiOrchestrator from './services/aiOrchestrator';
+import { aiControlService, AIControlCommand } from './src/systems/aiControl';
+import './src/styles/aiControl.css';
 import { initializeEffects } from './src/effects';
 import { EffectPanel } from './src/components/EffectPanel';
 import { VideoPlanPanel } from './src/components/VideoPlanPanel';
@@ -556,6 +558,13 @@ const App = () => {
     },
   ]);
   const [chatInput, setChatInput] = useState('');
+
+  // AI Control State
+  const [aiControlPending, setAiControlPending] = useState<{
+    message: string;
+    commands: AIControlCommand[];
+    controlNames: string[];
+  } | null>(null);
 
   // Modals & Tools
   const [showGenModal, setShowGenModal] = useState<'image' | 'video' | null>(null);
@@ -1828,6 +1837,35 @@ const App = () => {
     setIsProcessing(true);
 
     try {
+      // First, check if this is an AI control command
+      if (aiControlService.isControlCommand(userMessage)) {
+        const controlResult = await aiControlService.processMessage(userMessage);
+
+        if (controlResult.success && controlResult.requiresConfirmation) {
+          // Store pending commands and show confirmation
+          setAiControlPending({
+            message: controlResult.message,
+            commands: controlResult.pendingCommands || [],
+            controlNames: controlResult.controlsHighlighted,
+          });
+
+          setChatMessages((prev) => [
+            ...prev,
+            {
+              role: 'model',
+              text: controlResult.message,
+              timestamp: new Date(),
+            },
+          ]);
+          setIsProcessing(false);
+          return;
+        } else if (!controlResult.success) {
+          // Couldn't parse as control command, fall back to regular chat
+          // Continue to regular chat handling below
+        }
+      }
+
+      // Regular chat handling
       const response = await chatRequest.execute(async (signal) => {
         const history = chatMessages.map((m) => ({
           role: m.role,
@@ -1887,6 +1925,34 @@ const App = () => {
     }
   }, [chatInput, chatMessages, chatRequest]);
 
+  // Handle AI control confirmation - apply changes
+  const handleAiControlApply = useCallback(() => {
+    if (!aiControlPending) return;
+
+    const result = aiControlService.applyPendingCommands();
+    setChatMessages((prev) => [
+      ...prev,
+      { role: 'model', text: result.message, timestamp: new Date() },
+    ]);
+    setAiControlPending(null);
+  }, [aiControlPending]);
+
+  // Handle AI control confirmation - just show control
+  const handleAiControlShowOnly = useCallback(() => {
+    if (!aiControlPending) return;
+
+    aiControlService.cancelPendingCommands();
+    setChatMessages((prev) => [
+      ...prev,
+      {
+        role: 'model',
+        text: 'No problem! The control is highlighted on the left panel. You can adjust it manually.',
+        timestamp: new Date(),
+      },
+    ]);
+    setAiControlPending(null);
+  }, [aiControlPending]);
+
   // Track audio duration
   useEffect(() => {
     const audio = audioElementRef.current;
@@ -1935,6 +2001,9 @@ const App = () => {
           duration={audioDuration}
           canvasRef={canvasRef}
           mediaStreamDestRef={mediaStreamDestRef}
+          aiControlPending={aiControlPending}
+          onAiControlApply={handleAiControlApply}
+          onAiControlShowOnly={handleAiControlShowOnly}
         />
 
         {/* Hidden audio element */}

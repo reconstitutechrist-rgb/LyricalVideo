@@ -38,6 +38,7 @@ import { WordTimingEditor } from '../LyricEditor/WordTimingEditor';
 import { CollapsibleSection } from './CollapsibleSection';
 import { FontUploader } from '../FontUploader';
 import { ModeToggle, ModeGate } from '../common';
+import { ConfirmationBubble } from '../AIControl/ConfirmationBubble';
 
 // ============================================
 // Types
@@ -169,6 +170,15 @@ export interface LyricalFlowUIProps {
 
   // Optional: Children for center visualization
   children?: React.ReactNode;
+
+  // AI Control
+  aiControlPending?: {
+    message: string;
+    commands: unknown[];
+    controlNames: string[];
+  } | null;
+  onAiControlApply?: () => void;
+  onAiControlShowOnly?: () => void;
 }
 
 // ============================================
@@ -254,7 +264,8 @@ const ToggleSwitch: React.FC<{
   onToggle: () => void;
   label: string;
   id: string;
-}> = ({ enabled, onToggle, label, id }) => (
+  'data-control-id'?: string;
+}> = ({ enabled, onToggle, label, id, 'data-control-id': dataControlId }) => (
   <div className="flex justify-between items-center">
     <label htmlFor={id} className="text-[9px] text-slate-400">
       {label}
@@ -264,6 +275,7 @@ const ToggleSwitch: React.FC<{
       role="switch"
       aria-checked={enabled}
       onClick={onToggle}
+      data-control-id={dataControlId || id}
       className={`toggle-switch w-8 h-4 rounded-full p-0.5 cursor-pointer ${enabled ? 'on' : 'off'}`}
     >
       <div className="toggle-knob w-3 h-3 bg-white rounded-full shadow" />
@@ -595,6 +607,10 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
   // Display
   currentLyricText,
   children,
+  // AI Control
+  aiControlPending,
+  onAiControlApply,
+  onAiControlShowOnly,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -1054,7 +1070,12 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
               {/* Aspect Ratio */}
               <div className="p-2.5 rounded-lg glass-card">
                 <label className="text-[9px] text-slate-400 mb-2 block">Aspect Ratio</label>
-                <div className="flex gap-1.5" role="radiogroup" aria-label="Aspect ratio selection">
+                <div
+                  className="flex gap-1.5"
+                  role="radiogroup"
+                  aria-label="Aspect ratio selection"
+                  data-control-id="aspect-ratio"
+                >
                   {ASPECT_RATIO_OPTIONS.map((option) => (
                     <button
                       key={option.value}
@@ -1083,6 +1104,7 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
               className="grid grid-cols-2 gap-1.5"
               role="radiogroup"
               aria-label="Visual style selection"
+              data-control-id="visual-style"
             >
               {STYLE_OPTIONS.map((style) => (
                 <button
@@ -1108,7 +1130,7 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
               {/* Color Palette */}
               <div className="p-2.5 rounded-lg glass-card">
                 <label className="text-[9px] text-slate-400 mb-2 block">Color Palette</label>
-                <div className="grid grid-cols-5 gap-1.5">
+                <div className="grid grid-cols-5 gap-1.5" data-control-id="color-palette">
                   {COLOR_PALETTE_OPTIONS.map((palette) => (
                     <button
                       key={palette.value}
@@ -1149,6 +1171,7 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
                 </label>
                 <select
                   id="text-animation"
+                  data-control-id="text-animation"
                   value={textAnimation}
                   onChange={(e) => onTextAnimationChange(e.target.value as TextAnimationStyle)}
                   className="glass-select w-full py-1.5 px-2 rounded-md text-[10px] text-slate-300 outline-none"
@@ -1189,6 +1212,7 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
                   </label>
                   <select
                     id="genre-override"
+                    data-control-id="genre"
                     value={genreOverride || ''}
                     onChange={(e) => onGenreOverride(e.target.value || null)}
                     className="glass-select w-full py-1.5 px-2 rounded-md text-[10px] text-slate-300 outline-none"
@@ -1224,6 +1248,7 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
               </div>
               <input
                 id="animation-speed"
+                data-control-id="animation-speed"
                 type="range"
                 min="0.5"
                 max="3"
@@ -1276,6 +1301,7 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
                 </div>
                 <input
                   id="reactivity-intensity"
+                  data-control-id="reactivity-intensity"
                   type="range"
                   min="0.5"
                   max="3"
@@ -1297,6 +1323,7 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
                   </div>
                   <input
                     id="shake-intensity"
+                    data-control-id="shake-intensity"
                     type="range"
                     min="0.5"
                     max="3"
@@ -1340,6 +1367,7 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
                         }
                         className="glass-select py-1 px-2 rounded text-[9px] text-slate-300"
                         aria-label={`${key} frequency mapping`}
+                        data-control-id={`frequency-mapping-${key}`}
                       >
                         {FREQUENCY_BAND_OPTIONS.map((band) => (
                           <option key={band.value} value={band.value}>
@@ -1359,6 +1387,7 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
                 </label>
                 <select
                   id="blend-mode"
+                  data-control-id="blend-mode"
                   value={blendMode}
                   onChange={(e) => onBlendModeChange(e.target.value as BlendMode)}
                   className="glass-select w-full py-1.5 px-2 rounded-md text-[10px] text-slate-300 outline-none"
@@ -1889,6 +1918,17 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
                 <SparklesIcon className="w-4 h-4" />
                 <span>Creating...</span>
                 <SoundWave count={5} />
+              </div>
+            )}
+
+            {/* AI Control Confirmation */}
+            {aiControlPending && onAiControlApply && onAiControlShowOnly && (
+              <div className="mt-2">
+                <ConfirmationBubble
+                  onApply={onAiControlApply}
+                  onShowOnly={onAiControlShowOnly}
+                  controlNames={aiControlPending.controlNames}
+                />
               </div>
             )}
 

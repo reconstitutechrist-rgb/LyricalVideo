@@ -61,6 +61,7 @@ export const ModeToggle: React.FC<ModeToggleProps> = ({
         role="switch"
         aria-checked={isAdvancedMode}
         aria-label={`Switch to ${isAdvancedMode ? 'simple' : 'advanced'} mode`}
+        data-control-id="ui-mode"
         onClick={handleToggle}
         onKeyDown={handleKeyDown}
         className={`
