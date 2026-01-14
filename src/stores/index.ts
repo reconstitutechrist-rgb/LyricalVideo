@@ -52,3 +52,12 @@ export {
   getResolutionDimensions,
 } from './exportStore';
 export type { ExportState, ExportActions, ExportStore } from './exportStore';
+
+// UI Mode state (simple/advanced mode toggle with persistence)
+export {
+  useUIModeStore,
+  selectIsAdvancedMode,
+  selectIsSimpleMode,
+  selectHasSeenAdvancedMode,
+} from './uiModeStore';
+export type { UIModeState, UIModeActions, UIModeStore } from './uiModeStore';

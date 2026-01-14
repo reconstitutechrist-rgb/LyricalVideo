@@ -15,7 +15,12 @@ import {
   ExportPreset,
   CustomExportPreset,
 } from '../../../services/exportPresets';
-import { useExportStore, useVisualSettingsStore } from '../../stores';
+import {
+  useExportStore,
+  useVisualSettingsStore,
+  useUIModeStore,
+  selectIsAdvancedMode,
+} from '../../stores';
 
 interface ExportSettingsPanelProps {
   // Optional props - will use export store if not provided
@@ -78,6 +83,7 @@ export const ExportSettingsPanel: React.FC<ExportSettingsPanelProps> = ({
   // Use export store values with props as override
   const exportStore = useExportStore();
   const visualSettingsStore = useVisualSettingsStore();
+  const isAdvancedMode = useUIModeStore(selectIsAdvancedMode);
 
   const settings = settingsProp ?? exportStore.settings;
   const progress = progressProp ?? exportStore.progress;
@@ -213,20 +219,24 @@ export const ExportSettingsPanel: React.FC<ExportSettingsPanelProps> = ({
         </p>
       </div>
 
-      {/* Advanced Settings Toggle */}
-      <button
-        onClick={() => setShowAdvanced(!showAdvanced)}
-        className="flex items-center justify-between w-full py-2 text-xs text-gray-400 hover:text-gray-300 border-t border-gray-700/50"
-      >
-        <span>Advanced Settings</span>
-        {showAdvanced ? (
-          <ChevronUpIcon className="w-3 h-3" />
-        ) : (
-          <ChevronDownIcon className="w-3 h-3" />
-        )}
-      </button>
+      {/* Advanced Settings Toggle - Only show in Advanced Mode */}
+      {isAdvancedMode && (
+        <>
+          <button
+            onClick={() => setShowAdvanced(!showAdvanced)}
+            className="flex items-center justify-between w-full py-2 text-xs text-gray-400 hover:text-gray-300 border-t border-gray-700/50"
+          >
+            <span>Advanced Settings</span>
+            {showAdvanced ? (
+              <ChevronUpIcon className="w-3 h-3" />
+            ) : (
+              <ChevronDownIcon className="w-3 h-3" />
+            )}
+          </button>
+        </>
+      )}
 
-      {showAdvanced && (
+      {isAdvancedMode && showAdvanced && (
         <>
           {/* Resolution */}
           <div className="space-y-2">

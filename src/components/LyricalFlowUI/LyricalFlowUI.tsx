@@ -37,6 +37,7 @@ import { formatTime } from '../../utils/time';
 import { WordTimingEditor } from '../LyricEditor/WordTimingEditor';
 import { CollapsibleSection } from './CollapsibleSection';
 import { FontUploader } from '../FontUploader';
+import { ModeToggle, ModeGate } from '../common';
 
 // ============================================
 // Types
@@ -913,7 +914,10 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
                 </span>
               </div>
             </div>
-            <EqualizerBars active={isPlaying} />
+            <div className="flex items-center gap-3">
+              <ModeToggle compact showLabels />
+              <EqualizerBars active={isPlaying} />
+            </div>
           </div>
         </div>
 
@@ -990,7 +994,11 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
             )}
 
             {/* Advanced Input Options */}
-            <CollapsibleSection title="Advanced Input" storageKey="advanced-input">
+            <CollapsibleSection
+              title="Advanced Input"
+              storageKey="advanced-input"
+              requiresAdvancedMode
+            >
               {/* Mic Recording */}
               <button
                 onClick={isRecordingMic ? onStopMicRecording : onStartMicRecording}
@@ -1092,7 +1100,11 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
             </div>
 
             {/* Advanced Styling */}
-            <CollapsibleSection title="Advanced Styling" storageKey="advanced-styling">
+            <CollapsibleSection
+              title="Advanced Styling"
+              storageKey="advanced-styling"
+              requiresAdvancedMode
+            >
               {/* Color Palette */}
               <div className="p-2.5 rounded-lg glass-card">
                 <label className="text-[9px] text-slate-400 mb-2 block">Color Palette</label>
@@ -1151,7 +1163,11 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
             </CollapsibleSection>
 
             {/* Genre Detection */}
-            <CollapsibleSection title="Genre Detection" storageKey="genre-detection">
+            <CollapsibleSection
+              title="Genre Detection"
+              storageKey="genre-detection"
+              requiresAdvancedMode
+            >
               <div className="p-2.5 rounded-lg glass-card">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-[9px] text-slate-400">Detected Genre</span>
@@ -1249,7 +1265,7 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
             </div>
 
             {/* Advanced FX */}
-            <CollapsibleSection title="Advanced FX" storageKey="advanced-fx">
+            <CollapsibleSection title="Advanced FX" storageKey="advanced-fx" requiresAdvancedMode>
               {/* Reactivity Intensity */}
               <div className="p-2.5 rounded-lg glass-card">
                 <div className="flex justify-between text-[9px] mb-1.5">
@@ -1357,7 +1373,11 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
             </CollapsibleSection>
 
             {/* Effect Studio */}
-            <CollapsibleSection title="Effect Studio" storageKey="effect-studio">
+            <CollapsibleSection
+              title="Effect Studio"
+              storageKey="effect-studio"
+              requiresAdvancedMode
+            >
               {/* Lyric Effects */}
               <div className="p-2.5 rounded-lg glass-card">
                 <div className="flex items-center justify-between mb-2">
@@ -1474,19 +1494,21 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
           <section aria-labelledby="timeline-heading">
             <div className="flex items-center justify-between mb-2">
               <StepIndicator step={4} label="Timeline" />
-              <button
-                onClick={onEditModeToggle}
-                className={`px-2 py-1 rounded-md text-[9px] glass-card flex items-center gap-1 transition ${
-                  editMode
-                    ? 'text-cyan-400 border-cyan-500/50'
-                    : 'text-slate-400 hover:text-cyan-400'
-                }`}
-                aria-label={editMode ? 'Exit edit mode' : 'Enter edit mode'}
-                aria-pressed={editMode}
-              >
-                <PencilSquareIcon className="w-3 h-3" />
-                {editMode ? 'Done' : 'Edit'}
-              </button>
+              <ModeGate mode="advanced">
+                <button
+                  onClick={onEditModeToggle}
+                  className={`px-2 py-1 rounded-md text-[9px] glass-card flex items-center gap-1 transition ${
+                    editMode
+                      ? 'text-cyan-400 border-cyan-500/50'
+                      : 'text-slate-400 hover:text-cyan-400'
+                  }`}
+                  aria-label={editMode ? 'Exit edit mode' : 'Enter edit mode'}
+                  aria-pressed={editMode}
+                >
+                  <PencilSquareIcon className="w-3 h-3" />
+                  {editMode ? 'Done' : 'Edit'}
+                </button>
+              </ModeGate>
             </div>
 
             {/* Bulk Actions Bar (when editing and has selections) */}
@@ -1545,7 +1567,11 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
             )}
 
             {/* Keyframe Animation Editor */}
-            <CollapsibleSection title="Motion Presets" storageKey="keyframe-editor">
+            <CollapsibleSection
+              title="Motion Presets"
+              storageKey="keyframe-editor"
+              requiresAdvancedMode
+            >
               <div className="p-2.5 rounded-lg glass-card">
                 <p className="text-[8px] text-slate-500 mb-2">
                   Apply motion presets to selected lyrics or all lyrics

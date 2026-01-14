@@ -1,11 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ChevronRightIcon } from '@heroicons/react/24/solid';
+import { useUIModeStore, selectIsAdvancedMode } from '../../stores/uiModeStore';
 
 interface CollapsibleSectionProps {
   title: string;
   storageKey?: string;
   defaultOpen?: boolean;
   children: React.ReactNode;
+  /** If true, section is hidden in Simple Mode */
+  requiresAdvancedMode?: boolean;
+  /** Optional fallback content to show in Simple Mode */
+  simpleModeFallback?: React.ReactNode;
 }
 
 export const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
@@ -13,7 +18,14 @@ export const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
   storageKey,
   defaultOpen = false,
   children,
+  requiresAdvancedMode = false,
+  simpleModeFallback,
 }) => {
+  // All hooks must be called before any conditional returns (Rules of Hooks)
+  const isAdvancedMode = useUIModeStore(selectIsAdvancedMode);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [contentHeight, setContentHeight] = useState<number>(0);
+
   // Initialize from localStorage if storageKey provided
   const [isOpen, setIsOpen] = useState(() => {
     if (storageKey && typeof window !== 'undefined') {
@@ -24,9 +36,6 @@ export const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
     }
     return defaultOpen;
   });
-
-  const contentRef = useRef<HTMLDivElement>(null);
-  const [contentHeight, setContentHeight] = useState<number>(0);
 
   // Measure content height for smooth animation
   useEffect(() => {
@@ -43,6 +52,14 @@ export const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
   }, [isOpen, storageKey]);
 
   const toggle = () => setIsOpen(!isOpen);
+
+  // Hide section in Simple Mode if it requires Advanced Mode
+  if (requiresAdvancedMode && !isAdvancedMode) {
+    if (simpleModeFallback) {
+      return <>{simpleModeFallback}</>;
+    }
+    return null;
+  }
 
   return (
     <div className="collapsible-section">
