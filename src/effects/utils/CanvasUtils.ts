@@ -10,11 +10,23 @@ import { ColorPalette } from '../../../types';
  */
 export function getPaletteColors(palette: ColorPalette): string[] {
   const palettes: Record<ColorPalette, string[]> = {
+    // Original palettes
     neon: ['#ff00ff', '#00ffff', '#ff00aa', '#aa00ff', '#00aaff'],
     sunset: ['#ff6b35', '#f7c59f', '#efa98a', '#d6955b', '#ffaa00'],
     ocean: ['#006994', '#40a8c4', '#60d394', '#95d5b2', '#2ec4b6'],
     matrix: ['#00ff00', '#00dd00', '#00bb00', '#009900', '#00ff33'],
     fire: ['#ff4500', '#ff6600', '#ff8800', '#ffaa00', '#ffcc00'],
+    // New palettes - Pastels & Soft
+    pastel: ['#ffd1dc', '#bae1ff', '#baffc9', '#ffffba', '#e0bbff'],
+    grayscale: ['#ffffff', '#c0c0c0', '#808080', '#404040', '#000000'],
+    sepia: ['#704214', '#a67b5b', '#c4a77d', '#e1d4bb', '#f5e6d3'],
+    // New palettes - Seasonal
+    autumn: ['#8b4513', '#d2691e', '#ff8c00', '#daa520', '#cd853f'],
+    winter: ['#e0f7fa', '#b2ebf2', '#80deea', '#4dd0e1', '#26c6da'],
+    spring: ['#98fb98', '#90ee90', '#ffb6c1', '#ffc0cb', '#f0e68c'],
+    // New palettes - High contrast & Nature
+    cyberpunk: ['#ff00ff', '#00ffff', '#ff0080', '#00ff80', '#8000ff'],
+    nature: ['#228b22', '#32cd32', '#8fbc8f', '#6b8e23', '#556b2f'],
   };
   return palettes[palette] || palettes.neon;
 }

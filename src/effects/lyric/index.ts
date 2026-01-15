@@ -34,6 +34,15 @@ import { RainbowCycleEffect } from './character/RainbowCycle';
 import { CharacterPopEffect } from './character/CharacterPop';
 import { LetterShuffleEffect } from './character/LetterShuffle';
 import { ScatterEffect } from './character/Scatter';
+// New character effects
+import { GlitchRevealEffect } from './character/GlitchReveal';
+import { LiquidMorphEffect } from './character/LiquidMorph';
+import { NeonFlickerEffect } from './character/NeonFlicker';
+import { ParticleAssembleEffect } from './character/ParticleAssemble';
+import { TypewriterModernEffect } from './character/TypewriterModern';
+import { ZoomCrashEffect } from './character/ZoomCrash';
+import { HandwrittenStrokeEffect } from './character/HandwrittenStroke';
+import { SplitRevealEffect } from './character/SplitReveal';
 
 import { TwistEffect } from './transform3d/Twist';
 import { FlipEffect } from './transform3d/Flip';
@@ -91,6 +100,47 @@ export function registerLyricEffects(): void {
   EffectRegistry.register(ScatterEffect, {
     description: 'Characters scatter and reassemble',
     tags: ['character', 'scatter', 'motion'],
+  });
+
+  // New character-level effects
+  EffectRegistry.register(GlitchRevealEffect, {
+    description: 'Characters scramble as random symbols then resolve',
+    tags: ['character', 'glitch', 'reveal', 'digital'],
+  });
+
+  EffectRegistry.register(LiquidMorphEffect, {
+    description: 'Letters melt and flow into place like liquid mercury',
+    tags: ['character', 'liquid', 'morph', 'metallic'],
+  });
+
+  EffectRegistry.register(NeonFlickerEffect, {
+    description: 'Letters turn on like neon signs with flicker',
+    tags: ['character', 'neon', 'flicker', 'glow'],
+  });
+
+  EffectRegistry.register(ParticleAssembleEffect, {
+    description: 'Scattered particles converge to form text',
+    tags: ['character', 'particle', 'assemble', 'converge'],
+  });
+
+  EffectRegistry.register(TypewriterModernEffect, {
+    description: 'Enhanced typewriter with cursor and typos',
+    tags: ['character', 'typewriter', 'cursor', 'typing'],
+  });
+
+  EffectRegistry.register(ZoomCrashEffect, {
+    description: 'Text zooms from infinity and crashes into place',
+    tags: ['character', 'zoom', 'crash', 'impact'],
+  });
+
+  EffectRegistry.register(HandwrittenStrokeEffect, {
+    description: 'Letters drawn stroke by stroke like handwriting',
+    tags: ['character', 'handwritten', 'stroke', 'draw'],
+  });
+
+  EffectRegistry.register(SplitRevealEffect, {
+    description: 'Text splits apart and reassembles',
+    tags: ['character', 'split', 'reveal', 'assemble'],
   });
 
   // 3D transform effects

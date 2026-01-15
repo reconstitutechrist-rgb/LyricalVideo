@@ -11,6 +11,7 @@ interface GenreSelectorProps {
 }
 
 const genreLabels: Record<Genre, string> = {
+  // Original genres
   [Genre.HIPHOP]: 'Hip-Hop',
   [Genre.ROCK]: 'Rock',
   [Genre.ELECTRONIC]: 'Electronic',
@@ -21,9 +22,16 @@ const genreLabels: Record<Genre, string> = {
   [Genre.JAZZ]: 'Jazz',
   [Genre.COUNTRY]: 'Country',
   [Genre.METAL]: 'Metal',
+  // New genres
+  [Genre.LOFI]: 'Lo-Fi',
+  [Genre.REGGAE]: 'Reggae',
+  [Genre.AMBIENT]: 'Ambient',
+  [Genre.PUNK]: 'Punk',
+  [Genre.FUTUREBASS]: 'Future Bass',
 };
 
 const genreColors: Record<Genre, string> = {
+  // Original genres
   [Genre.HIPHOP]: 'bg-amber-600',
   [Genre.ROCK]: 'bg-red-600',
   [Genre.ELECTRONIC]: 'bg-purple-600',
@@ -34,6 +42,12 @@ const genreColors: Record<Genre, string> = {
   [Genre.JAZZ]: 'bg-orange-700',
   [Genre.COUNTRY]: 'bg-green-700',
   [Genre.METAL]: 'bg-gray-700',
+  // New genres
+  [Genre.LOFI]: 'bg-rose-400',
+  [Genre.REGGAE]: 'bg-yellow-600',
+  [Genre.AMBIENT]: 'bg-sky-700',
+  [Genre.PUNK]: 'bg-lime-600',
+  [Genre.FUTUREBASS]: 'bg-fuchsia-500',
 };
 
 export const GenreSelector: React.FC<GenreSelectorProps> = ({

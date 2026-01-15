@@ -156,6 +156,7 @@ export interface ChatMessage {
 }
 
 export enum VisualStyle {
+  // Original styles
   NEON_PULSE = 'NEON_PULSE',
   LIQUID_DREAM = 'LIQUID_DREAM',
   GLITCH_CYBER = 'GLITCH_CYBER',
@@ -163,9 +164,37 @@ export enum VisualStyle {
   MINIMAL_TYPE = 'MINIMAL_TYPE',
   KALEIDOSCOPE = 'KALEIDOSCOPE',
   CHROMATIC_WAVE = 'CHROMATIC_WAVE',
+  // New styles - Nature/Organic
+  AURORA_BOREALIS = 'AURORA_BOREALIS',
+  WATER_RIPPLE = 'WATER_RIPPLE',
+  FIRE_EMBERS = 'FIRE_EMBERS',
+  // New styles - Retro/Vintage
+  VHS_RETRO = 'VHS_RETRO',
+  FILM_NOIR = 'FILM_NOIR',
+  // New styles - Abstract/Geometric
+  FRACTAL_ZOOM = 'FRACTAL_ZOOM',
+  PARTICLE_NEBULA = 'PARTICLE_NEBULA',
+  GEOMETRIC_MORPH = 'GEOMETRIC_MORPH',
 }
 
-export type ColorPalette = 'neon' | 'sunset' | 'ocean' | 'matrix' | 'fire';
+export type ColorPalette =
+  // Original palettes
+  | 'neon'
+  | 'sunset'
+  | 'ocean'
+  | 'matrix'
+  | 'fire'
+  // New palettes - Pastels & Soft
+  | 'pastel'
+  | 'grayscale'
+  | 'sepia'
+  // New palettes - Seasonal
+  | 'autumn'
+  | 'winter'
+  | 'spring'
+  // New palettes - High contrast & Nature
+  | 'cyberpunk'
+  | 'nature';
 export type TextAnimationStyle = 'NONE' | 'TYPEWRITER' | 'FADE_CHARS' | 'KINETIC' | 'BOUNCE';
 export type BlendMode =
   | 'source-over'
@@ -251,6 +280,7 @@ export interface AppState {
  * Music Genre for genre-aware effects
  */
 export enum Genre {
+  // Original genres
   HIPHOP = 'hiphop',
   ROCK = 'rock',
   ELECTRONIC = 'electronic',
@@ -261,6 +291,12 @@ export enum Genre {
   JAZZ = 'jazz',
   COUNTRY = 'country',
   METAL = 'metal',
+  // New genres
+  LOFI = 'lofi',
+  REGGAE = 'reggae',
+  AMBIENT = 'ambient',
+  PUNK = 'punk',
+  FUTUREBASS = 'futurebass',
 }
 
 /**
