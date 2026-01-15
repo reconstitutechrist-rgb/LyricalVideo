@@ -61,3 +61,31 @@ export {
   selectHasSeenAdvancedMode,
 } from './uiModeStore';
 export type { UIModeState, UIModeActions, UIModeStore } from './uiModeStore';
+
+// Video Plan state
+export {
+  useVideoPlanStore,
+  selectHasVideoPlan,
+  selectVideoPlanStatus,
+  selectIsVideoPlanApplied,
+  selectVideoPlanVersion,
+  selectCanUndoPlan,
+  selectIsAnyPlanOperationInProgress,
+} from './videoPlanStore';
+export type { VideoPlanState, VideoPlanActions, VideoPlanStore } from './videoPlanStore';
+
+// Chat state
+export {
+  useChatStore,
+  selectMessageCount,
+  selectHasMessages,
+  selectLastMessage,
+  selectLastModelMessage,
+  selectChatHistory,
+  selectCanSendMessage,
+} from './chatStore';
+export type { ChatState, ChatActions, ChatStore } from './chatStore';
+
+// Toast notifications
+export { useToastStore, toast, selectToastCount, selectHasToasts } from './toastStore';
+export type { Toast, ToastType, ToastState, ToastActions, ToastStore } from './toastStore';

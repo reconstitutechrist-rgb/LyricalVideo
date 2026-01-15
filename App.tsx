@@ -1,10 +1,14 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useAbortableRequest, isAbortError } from './src/hooks/useAbortableRequest';
+import { useAutoSave } from './src/hooks/useAutoSave';
 import {
   useAudioStore,
   useLyricsStore,
   useVisualSettingsStore,
   useExportStore,
+  useChatStore,
+  useVideoPlanStore,
+  toast,
 } from './src/stores';
 import {
   ArrowUpTrayIcon,
@@ -228,13 +232,37 @@ const App = () => {
   // State for genre detection status
   const [isDetectingGenre, setIsDetectingGenre] = useState(false);
 
-  // Video Plan state
-  const [videoPlan, setVideoPlan] = useState<VideoPlan | null>(null);
-  const [_videoPlanHistory, setVideoPlanHistory] = useState<VideoPlan[]>([]); // History for future undo feature
-  const [isGeneratingPlan, setIsGeneratingPlan] = useState(false);
-  const [showPlanPanel, setShowPlanPanel] = useState(true);
-  const [regeneratingPeakId, setRegeneratingPeakId] = useState<string | null>(null);
-  const [isRegeneratingBackground, setIsRegeneratingBackground] = useState(false);
+  // ============================================================================
+  // Video Plan Store (Zustand) - Migrated from useState
+  // ============================================================================
+  const videoPlanStore = useVideoPlanStore();
+  const {
+    videoPlan,
+    showPlanPanel,
+    isGeneratingPlan,
+    regeneratingPeakId,
+    isRegeneratingBackground,
+    setVideoPlan: setVideoPlanDirect,
+    setShowPlanPanel,
+    setIsGeneratingPlan,
+    setRegeneratingPeakId,
+    setIsRegeneratingBackground,
+    pushToHistory: pushVideoPlanToHistory,
+  } = videoPlanStore;
+
+  // Legacy-compatible setVideoPlan wrapper for gradual migration
+  // Supports both direct values and functional updaters
+  const setVideoPlan = useCallback(
+    (updater: VideoPlan | null | ((prev: VideoPlan | null) => VideoPlan | null)) => {
+      if (typeof updater === 'function') {
+        const newPlan = updater(videoPlanStore.videoPlan);
+        setVideoPlanDirect(newPlan);
+      } else {
+        setVideoPlanDirect(updater);
+      }
+    },
+    [videoPlanStore.videoPlan, setVideoPlanDirect]
+  );
 
   // New UI toggle and audio duration
   const [useNewUI, setUseNewUI] = useState(true);
@@ -494,6 +522,57 @@ const App = () => {
     initializeEffects();
   }, []);
 
+  // ============================================================================
+  // Auto-Save System
+  // ============================================================================
+  const [showRestorePrompt, setShowRestorePrompt] = useState(false);
+
+  const { restore: restoreProject, clear: clearAutoSave } = useAutoSave({
+    debounceMs: 2000,
+    enabled: true,
+    onSave: () => {
+      // Silent auto-save - no notification needed for regular saves
+    },
+    onRestore: (data) => {
+      // Update legacy state with restored data
+      setState((prev) => ({
+        ...prev,
+        lyrics: data.lyrics,
+        userProvidedLyrics: data.userProvidedLyrics,
+        currentStyle: data.currentStyle,
+        aspectRatio: data.aspectRatio,
+        visualSettings: data.visualSettings,
+      }));
+      toast.success('Session Restored', 'Your previous work has been restored');
+      setShowRestorePrompt(false);
+    },
+  });
+
+  // Check for auto-save on mount and show restore prompt
+  useEffect(() => {
+    const checkAutoSave = async () => {
+      try {
+        const { loadProject } = await import('./src/hooks/useAutoSave');
+        const data = await loadProject('autosave');
+        if (data && data.lyrics && data.lyrics.length > 0) {
+          setShowRestorePrompt(true);
+        }
+      } catch (_err) {
+        // Silently ignore - no previous session to restore
+      }
+    };
+    checkAutoSave();
+  }, []);
+
+  const handleRestoreSession = useCallback(async () => {
+    await restoreProject();
+  }, [restoreProject]);
+
+  const handleDismissRestore = useCallback(async () => {
+    setShowRestorePrompt(false);
+    await clearAutoSave();
+  }, [clearAutoSave]);
+
   // Keyboard shortcuts for playback control
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -550,14 +629,31 @@ const App = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingStatus, setProcessingStatus] = useState('');
   const [chatOpen, setChatOpen] = useState(true);
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
-    {
-      role: 'model',
-      text: 'Welcome to Lyrical Flow. I am your AI Director. Upload a track, and lets create something epic.',
-      timestamp: new Date(),
+
+  // ============================================================================
+  // Chat Store (Zustand) - Migrated from useState
+  // ============================================================================
+  const chatStore = useChatStore();
+  const {
+    messages: chatMessages,
+    chatInput,
+    setChatInput,
+    setMessages: setMessagesStore,
+  } = chatStore;
+
+  // Legacy-compatible setChatMessages wrapper for gradual migration
+  const setChatMessages = useCallback(
+    (updater: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])) => {
+      if (typeof updater === 'function') {
+        // For functional updates, get current messages and compute new ones
+        const newMessages = updater(chatMessages);
+        setMessagesStore(newMessages);
+      } else {
+        setMessagesStore(updater);
+      }
     },
-  ]);
-  const [chatInput, setChatInput] = useState('');
+    [chatMessages, setMessagesStore]
+  );
 
   // AI Control State
   const [aiControlPending, setAiControlPending] = useState<{
@@ -719,8 +815,8 @@ const App = () => {
             },
           ]);
         })
-        .catch((err) => {
-          console.error('Video plan generation failed:', err);
+        .catch((_err) => {
+          toast.error('Plan Generation Failed', 'Falling back to genre detection');
           // Fall back to just genre detection
           detectMusicGenre(file)
             .then((result) => {
@@ -737,16 +833,16 @@ const App = () => {
                 },
               ]);
             })
-            .catch((genreErr) => {
-              console.error('Genre detection also failed:', genreErr);
+            .catch((_genreErr) => {
+              toast.warning('Genre Detection Failed', 'You can still proceed with manual settings');
             });
         })
         .finally(() => {
           setIsGeneratingPlan(false);
           setIsDetectingGenre(false);
         });
-    } catch (err) {
-      console.error(err);
+    } catch (_err) {
+      toast.error('Audio Analysis Failed', 'Please try again');
       setChatMessages((prev) => [
         ...prev,
         { role: 'model', text: 'Error analyzing audio. Please try again.', timestamp: new Date() },
@@ -759,7 +855,7 @@ const App = () => {
 
   // Handle file drop from AI panel onboarding - ONLY processes audio, does NOT generate plan
   // Plan generation is triggered separately after user completes onboarding flow
-  const handleFileDrop = async (file: File) => {
+  const handleFileDrop = useCallback(async (file: File) => {
     const url = URL.createObjectURL(file);
     setIsProcessing(true);
     setProcessingStatus('Decoding audio...');
@@ -778,8 +874,8 @@ const App = () => {
 
       // Don't generate plan yet - wait for user to complete onboarding
       // The onboarding flow will call generateVideoPlanFromOnboarding when ready
-    } catch (err) {
-      console.error(err);
+    } catch (_err) {
+      toast.error('Audio Processing Failed', 'Please try again');
       setChatMessages((prev) => [
         ...prev,
         { role: 'model', text: 'Error processing audio. Please try again.', timestamp: new Date() },
@@ -788,12 +884,12 @@ const App = () => {
       setIsProcessing(false);
       setProcessingStatus('');
     }
-  };
+  }, []);
 
   // Handle lyrics submit from AI panel onboarding
-  const handleLyricsSubmitFromPanel = (lyrics: string) => {
+  const handleLyricsSubmitFromPanel = useCallback((lyrics: string) => {
     setState((prev) => ({ ...prev, userProvidedLyrics: lyrics }));
-  };
+  }, []);
 
   // Handle creative vision submit from AI panel onboarding - triggers plan generation
   const handleVisionSubmitFromPanel = async (vision: string) => {
@@ -862,8 +958,8 @@ const App = () => {
             },
           ]);
         })
-        .catch((err) => {
-          console.error('Video plan generation failed:', err);
+        .catch((_err) => {
+          toast.error('Plan Generation Failed', 'Falling back to genre detection');
           // Fall back to just genre detection
           detectMusicGenre(file)
             .then((result) => {
@@ -880,8 +976,8 @@ const App = () => {
                 },
               ]);
             })
-            .catch((genreErr) => {
-              console.error('Genre detection also failed:', genreErr);
+            .catch((_genreErr) => {
+              toast.warning('Genre Detection Failed', 'You can still proceed with manual settings');
             });
         })
         .finally(() => {
@@ -889,8 +985,8 @@ const App = () => {
           setIsDetectingGenre(false);
           setProcessingStatus('');
         });
-    } catch (err) {
-      console.error(err);
+    } catch (_err) {
+      toast.error('Audio Analysis Failed', 'Please try again');
       setChatMessages((prev) => [
         ...prev,
         { role: 'model', text: 'Error analyzing audio. Please try again.', timestamp: new Date() },
@@ -1119,7 +1215,7 @@ const App = () => {
       }
     } catch (err) {
       if (!isAbortError(err)) {
-        console.error(err);
+        toast.error('Generation Failed', 'Please try again');
         setChatMessages((prev) => [
           ...prev,
           { role: 'model', text: 'Failed to generate. Please try again.', timestamp: new Date() },
@@ -1236,8 +1332,8 @@ const App = () => {
               timestamp: new Date(),
             },
           ]);
-        } catch (error) {
-          console.error('MP4 conversion failed:', error);
+        } catch (_error) {
+          toast.warning('MP4 Conversion Failed', 'Downloading as WebM instead');
           setChatMessages((prev) => [
             ...prev,
             {
@@ -1380,8 +1476,8 @@ const App = () => {
             ...prev,
             { role: 'model', text: `Transcribed: "${transcription}"`, timestamp: new Date() },
           ]);
-        } catch (err) {
-          console.error(err);
+        } catch (_err) {
+          toast.error('Transcription Failed', 'Could not transcribe audio');
           setChatMessages((prev) => [
             ...prev,
             { role: 'model', text: 'Failed to transcribe audio.', timestamp: new Date() },
@@ -1394,8 +1490,8 @@ const App = () => {
       micRecorderRef.current = recorder;
       recorder.start();
       setIsRecordingMic(true);
-    } catch (err) {
-      console.error('Mic access denied:', err);
+    } catch (_err) {
+      toast.error('Microphone Access Denied', 'Please grant microphone permissions');
       setChatMessages((prev) => [
         ...prev,
         { role: 'model', text: 'Microphone access denied.', timestamp: new Date() },
@@ -1422,8 +1518,8 @@ const App = () => {
         ...prev,
         { role: 'model', text: `Image Analysis:\n${analysis}`, timestamp: new Date() },
       ]);
-    } catch (err) {
-      console.error(err);
+    } catch (_err) {
+      toast.error('Image Analysis Failed', 'Could not analyze the image');
       setChatMessages((prev) => [
         ...prev,
         { role: 'model', text: 'Failed to analyze image.', timestamp: new Date() },
@@ -1483,7 +1579,7 @@ const App = () => {
       }
     } catch (err) {
       if (!isAbortError(err)) {
-        console.error('Sync failed:', err);
+        toast.error('Sync Failed', 'Could not sync lyrics with audio');
         setState((prev) => ({ ...prev, isSyncing: false, syncProgress: 0 }));
         setChatMessages((prev) => [
           ...prev,
@@ -1500,12 +1596,12 @@ const App = () => {
   }, [state.audioFile, state.syncPrecision, state.userProvidedLyrics, syncRequest]);
 
   // Handle lyric update from WaveformEditor
-  const handleLyricUpdate = (index: number, updates: Partial<LyricLine>) => {
+  const handleLyricUpdate = useCallback((index: number, updates: Partial<LyricLine>) => {
     setState((prev) => ({
       ...prev,
       lyrics: prev.lyrics.map((l, i) => (i === index ? { ...l, ...updates } : l)),
     }));
-  };
+  }, []);
 
   // --- Video Plan Handlers ---
 
@@ -1533,13 +1629,13 @@ const App = () => {
 
       if (plan) {
         if (videoPlan) {
-          setVideoPlanHistory((prev) => [...prev, videoPlan]);
+          pushVideoPlanToHistory();
         }
         setVideoPlan(plan);
       }
     } catch (err) {
       if (!isAbortError(err)) {
-        console.error('Failed to regenerate plan:', err);
+        toast.error('Plan Regeneration Failed', 'Could not regenerate video plan');
         setChatMessages((prev) => [
           ...prev,
           { role: 'model', text: 'Failed to regenerate video plan.', timestamp: new Date() },
@@ -1557,7 +1653,7 @@ const App = () => {
     planRequest,
   ]);
 
-  const handleApplyPlan = () => {
+  const handleApplyPlan = useCallback(() => {
     if (!videoPlan) return;
 
     // Apply visual settings from plan
@@ -1593,7 +1689,7 @@ const App = () => {
         timestamp: new Date(),
       },
     ]);
-  };
+  }, [videoPlan]);
 
   const handleModifyPlanViaChat = useCallback(
     async (instruction: string) => {
@@ -1605,7 +1701,7 @@ const App = () => {
         });
 
         if (modifiedPlan) {
-          setVideoPlanHistory((prev) => [...prev, videoPlan]);
+          pushVideoPlanToHistory();
           setVideoPlan(modifiedPlan);
           setChatMessages((prev) => [
             ...prev,
@@ -1614,7 +1710,7 @@ const App = () => {
         }
       } catch (err) {
         if (!isAbortError(err)) {
-          console.error('Failed to modify plan:', err);
+          toast.error('Plan Modification Failed', 'Please try again');
           setChatMessages((prev) => [
             ...prev,
             {
@@ -1629,23 +1725,32 @@ const App = () => {
     [videoPlan, planModifyRequest]
   );
 
-  const handleMoodEdit = (mood: VideoPlanMood) => {
-    if (!videoPlan) return;
-    setVideoPlanHistory((prev) => [...prev, videoPlan]);
-    setVideoPlan({ ...videoPlan, mood, version: videoPlan.version + 1 });
-  };
+  const handleMoodEdit = useCallback(
+    (mood: VideoPlanMood) => {
+      if (!videoPlan) return;
+      pushVideoPlanToHistory();
+      setVideoPlan({ ...videoPlan, mood, version: videoPlan.version + 1 });
+    },
+    [videoPlan, pushVideoPlanToHistory]
+  );
 
-  const handlePaletteEdit = (colorPalette: VideoPlanColorPalette) => {
-    if (!videoPlan) return;
-    setVideoPlanHistory((prev) => [...prev, videoPlan]);
-    setVideoPlan({ ...videoPlan, colorPalette, version: videoPlan.version + 1 });
-  };
+  const handlePaletteEdit = useCallback(
+    (colorPalette: VideoPlanColorPalette) => {
+      if (!videoPlan) return;
+      pushVideoPlanToHistory();
+      setVideoPlan({ ...videoPlan, colorPalette, version: videoPlan.version + 1 });
+    },
+    [videoPlan, pushVideoPlanToHistory]
+  );
 
-  const handleStyleEdit = (visualStyle: VideoPlanVisualStyle) => {
-    if (!videoPlan) return;
-    setVideoPlanHistory((prev) => [...prev, videoPlan]);
-    setVideoPlan({ ...videoPlan, visualStyle, version: videoPlan.version + 1 });
-  };
+  const handleStyleEdit = useCallback(
+    (visualStyle: VideoPlanVisualStyle) => {
+      if (!videoPlan) return;
+      pushVideoPlanToHistory();
+      setVideoPlan({ ...videoPlan, visualStyle, version: videoPlan.version + 1 });
+    },
+    [videoPlan, pushVideoPlanToHistory]
+  );
 
   const handleRegeneratePeakVisual = useCallback(
     async (peak: EmotionalPeak) => {
@@ -1685,7 +1790,7 @@ const App = () => {
         }
       } catch (err) {
         if (!isAbortError(err)) {
-          console.error('Failed to regenerate peak visual:', err);
+          toast.error('Visual Generation Failed', 'Could not generate peak visual');
           setChatMessages((prev) => [
             ...prev,
             { role: 'model', text: 'Failed to generate peak visual.', timestamp: new Date() },
@@ -1756,7 +1861,7 @@ const App = () => {
       }
     } catch (err) {
       if (!isAbortError(err)) {
-        console.error('Failed to toggle background:', err);
+        toast.error('Background Toggle Failed', 'Could not generate new background');
         setChatMessages((prev) => [
           ...prev,
           { role: 'model', text: 'Failed to generate new background.', timestamp: new Date() },
@@ -1816,7 +1921,7 @@ const App = () => {
       }
     } catch (err) {
       if (!isAbortError(err)) {
-        console.error('Failed to regenerate background:', err);
+        toast.error('Background Regeneration Failed', 'Please try again');
         setChatMessages((prev) => [
           ...prev,
           { role: 'model', text: 'Failed to regenerate background.', timestamp: new Date() },
@@ -1914,7 +2019,7 @@ const App = () => {
       }
     } catch (err) {
       if (!isAbortError(err)) {
-        console.error(err);
+        toast.error('Chat Error', 'Sorry, I encountered an error');
         setChatMessages((prev) => [
           ...prev,
           { role: 'model', text: 'Sorry, I encountered an error.', timestamp: new Date() },
@@ -2105,6 +2210,32 @@ const App = () => {
 
   return (
     <div className="flex h-screen w-full bg-[#0f172a] text-white overflow-hidden font-sans">
+      {/* AUTO-SAVE RESTORE PROMPT */}
+      {showRestorePrompt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="bg-slate-800 border border-white/20 rounded-xl p-6 max-w-md mx-4 shadow-2xl">
+            <h3 className="text-lg font-bold text-white mb-2">Previous Session Found</h3>
+            <p className="text-sm text-slate-300 mb-4">
+              We found an auto-saved session from your previous work. Would you like to restore it?
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={handleDismissRestore}
+                className="px-4 py-2 text-sm text-slate-400 hover:text-white transition-colors"
+              >
+                Start Fresh
+              </button>
+              <button
+                onClick={handleRestoreSession}
+                className="px-4 py-2 text-sm bg-gradient-to-r from-pink-500 to-purple-500 text-white rounded-lg hover:opacity-90 transition-opacity"
+              >
+                Restore Session
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* BACKGROUND AMBIENCE */}
       <div className="absolute inset-0 z-0 pointer-events-none">
         <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] bg-purple-900/30 rounded-full blur-[120px]"></div>
@@ -3378,8 +3509,8 @@ const App = () => {
                         }
                       }
                     }
-                  } catch (err) {
-                    console.error(err);
+                  } catch (_err) {
+                    toast.error('Chat Error', 'Sorry, I encountered an error');
                     setChatMessages((prev) => [
                       ...prev,
                       {

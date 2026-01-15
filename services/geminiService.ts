@@ -94,6 +94,63 @@ async function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
 }
 
 /**
+ * Combine multiple AbortSignals into one
+ * Uses native AbortSignal.any if available, falls back to manual implementation
+ */
+function combineAbortSignals(...signals: AbortSignal[]): AbortSignal {
+  // Use native AbortSignal.any if available (Chrome 116+, Node 20+)
+  if ('any' in AbortSignal && typeof AbortSignal.any === 'function') {
+    return AbortSignal.any(signals);
+  }
+
+  // Fallback for older browsers
+  const controller = new AbortController();
+  for (const signal of signals) {
+    if (signal.aborted) {
+      controller.abort(signal.reason);
+      return controller.signal;
+    }
+    signal.addEventListener('abort', () => controller.abort(signal.reason), { once: true });
+  }
+  return controller.signal;
+}
+
+/**
+ * Fetch with timeout support
+ * Combines timeout abort with optional external abort signal
+ */
+async function fetchWithTimeout(
+  url: string,
+  options: RequestInit & { timeout?: number } = {}
+): Promise<Response> {
+  const { timeout = 30000, signal, ...fetchOptions } = options;
+
+  const timeoutController = new AbortController();
+  const timeoutId = setTimeout(() => timeoutController.abort(), timeout);
+
+  // Combine timeout signal with external signal if provided
+  const combinedSignal = signal
+    ? combineAbortSignals(signal, timeoutController.signal)
+    : timeoutController.signal;
+
+  try {
+    const response = await fetch(url, {
+      ...fetchOptions,
+      signal: combinedSignal,
+    });
+    return response;
+  } catch (error) {
+    // Distinguish timeout from user abort
+    if (timeoutController.signal.aborted && !signal?.aborted) {
+      throw new Error(`Request timed out after ${timeout}ms`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+/**
  * Execute a function with retry logic and exponential backoff
  * Supports AbortSignal for cancellation
  */
@@ -783,7 +840,10 @@ export const generateVideoBackground = async (
   const videoUri = operation.response?.generatedVideos?.[0]?.video?.uri;
   if (!videoUri) throw new Error('Video generation failed');
 
-  const res = await fetch(`${videoUri}&key=${process.env.API_KEY}`, { signal });
+  const res = await fetchWithTimeout(`${videoUri}&key=${process.env.API_KEY}`, {
+    signal,
+    timeout: 60000, // 60 second timeout for video download
+  });
   if (!res.ok) {
     throw new Error(`Failed to fetch generated video: ${res.statusText}`);
   }

@@ -44,6 +44,16 @@ interface VisualizerProps {
   exportResolution?: ExportResolution;
 }
 
+// HSL to RGB helper function (extracted outside render loop for performance)
+const hue2rgb = (p: number, q: number, t: number): number => {
+  if (t < 0) t += 1;
+  if (t > 1) t -= 1;
+  if (t < 1 / 6) return p + (q - p) * 6 * t;
+  if (t < 1 / 2) return q;
+  if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+  return p;
+};
+
 // Particle Class - uses circular buffer for O(1) trail updates
 class Particle {
   x: number;
@@ -235,6 +245,8 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
     const dataArrayRef = useRef<Uint8Array | null>(null);
     const requestRef = useRef<number>(0);
     const particlesRef = useRef<Particle[]>([]);
+    // Pre-allocated pool for WebGL particle data to avoid per-frame allocations
+    const particleDataPoolRef = useRef<ParticleData[]>([]);
     const videoRef = useRef<HTMLVideoElement>(null);
     const bgImageRef = useRef<HTMLImageElement | null>(null);
     const prevPaletteRef = useRef<ColorPalette>(settings.palette);
@@ -390,6 +402,17 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
           { length: 150 },
           () => new Particle(width, height, settings.palette)
         );
+
+        // Pre-allocate particle data pool for WebGL rendering (avoids per-frame allocations)
+        particleDataPoolRef.current = Array.from({ length: 150 }, () => ({
+          x: 0,
+          y: 0,
+          size: 0,
+          r: 1,
+          g: 1,
+          b: 1,
+          opacity: 0.8,
+        }));
 
         return () => {
           audio.removeEventListener('timeupdate', handleTimeUpdate);
@@ -800,44 +823,40 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
         // Render particles - use WebGL if available, fall back to Canvas 2D
         if (useWebGLRef.current && webglParticleRendererRef.current && !settings.trailsEnabled) {
           // WebGL rendering (faster for many particles, but doesn't support trails yet)
-          const particleData: ParticleData[] = particlesRef.current.map((p) => {
+          // Use pre-allocated pool to avoid per-frame allocations
+          const pool = particleDataPoolRef.current;
+          const particles = particlesRef.current;
+          const count = Math.min(particles.length, pool.length);
+
+          for (let i = 0; i < count; i++) {
+            const p = particles[i];
+            const data = pool[i];
+
+            // Update pooled object in-place (no allocation)
+            data.x = p.x;
+            data.y = p.y;
+            data.size = p.size;
+            data.opacity = 0.8;
+
             // Parse HSL color to RGB
-            const color = p.color;
-            let r = 1,
-              g = 1,
-              b = 1;
-            const hslMatch = color.match(/hsla?\((\d+),\s*(\d+)%,\s*(\d+)%/);
+            const hslMatch = p.color.match(/hsla?\((\d+),\s*(\d+)%,\s*(\d+)%/);
             if (hslMatch) {
               const h = parseInt(hslMatch[1]) / 360;
               const s = parseInt(hslMatch[2]) / 100;
               const l = parseInt(hslMatch[3]) / 100;
-              // HSL to RGB conversion
-              const hue2rgb = (p: number, q: number, t: number) => {
-                if (t < 0) t += 1;
-                if (t > 1) t -= 1;
-                if (t < 1 / 6) return p + (q - p) * 6 * t;
-                if (t < 1 / 2) return q;
-                if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
-                return p;
-              };
               const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
               const pp = 2 * l - q;
-              r = hue2rgb(pp, q, h + 1 / 3);
-              g = hue2rgb(pp, q, h);
-              b = hue2rgb(pp, q, h - 1 / 3);
+              data.r = hue2rgb(pp, q, h + 1 / 3);
+              data.g = hue2rgb(pp, q, h);
+              data.b = hue2rgb(pp, q, h - 1 / 3);
+            } else {
+              data.r = 1;
+              data.g = 1;
+              data.b = 1;
             }
-            return {
-              x: p.x,
-              y: p.y,
-              size: p.size,
-              r,
-              g,
-              b,
-              opacity: 0.8,
-            };
-          });
+          }
 
-          webglParticleRendererRef.current.updateParticles(particleData, particleData.length);
+          webglParticleRendererRef.current.updateParticles(pool, count);
           const particleCanvas = webglParticleRendererRef.current.render();
           ctx.drawImage(particleCanvas, 0, 0, width, height);
         } else {

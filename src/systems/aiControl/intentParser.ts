@@ -29,6 +29,24 @@ const VALUE_PATTERNS = {
   disable: /(?:disable|turn off|deactivate|remove|stop)/i,
   intensityHigh: /(?:a lot|much|significantly|way|really|very|super|extremely|max)/i,
   intensityLow: /(?:a little|slightly|bit|touch|barely|tiny|small)/i,
+  // Compound command separators
+  compoundSeparator: /\s+(?:and|,|also|plus|as well as|&)\s+/i,
+};
+
+// ============================================================================
+// COMPOUND COMMAND PATTERNS
+// ============================================================================
+
+/**
+ * Patterns for splitting compound commands while preserving context
+ */
+const COMPOUND_PATTERNS = {
+  // "make it X and Y" -> ["make it X", "make it Y"]
+  makeItPattern: /^(make\s+(?:it|the\s+\w+)\s+)/i,
+  // "set X and Y" -> ["set X", "set Y"]
+  setPattern: /^(set\s+)/i,
+  // General command prefix to carry forward
+  commandPrefix: /^((?:make|set|change|increase|decrease|turn|enable|disable)\s+(?:the\s+)?)/i,
 };
 
 // ============================================================================
@@ -52,61 +70,126 @@ const SECTION_PATTERNS: { pattern: RegExp; normalizedName: string }[] = [
 ];
 
 // ============================================================================
+// COMPOUND COMMAND SPLITTING
+// ============================================================================
+
+/**
+ * Split a compound command into individual sub-commands
+ * e.g., "make it faster and brighter" -> ["make it faster", "make it brighter"]
+ */
+function splitCompoundCommand(message: string): string[] {
+  const normalizedMessage = message.trim();
+
+  // Check if this looks like a compound command
+  if (!VALUE_PATTERNS.compoundSeparator.test(normalizedMessage)) {
+    return [normalizedMessage];
+  }
+
+  // Extract any command prefix (e.g., "make it", "set the")
+  let prefix = '';
+  const prefixMatch = normalizedMessage.match(COMPOUND_PATTERNS.commandPrefix);
+  if (prefixMatch) {
+    prefix = prefixMatch[1];
+  }
+
+  // Split by compound separators
+  const parts = normalizedMessage.split(VALUE_PATTERNS.compoundSeparator);
+
+  // Filter empty parts and apply prefix to parts that don't have their own action verb
+  const subCommands: string[] = [];
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i].trim();
+    if (!part) continue;
+
+    // First part keeps its original form (already has prefix)
+    if (i === 0) {
+      subCommands.push(part);
+    } else {
+      // Check if this part has its own action verb
+      const hasOwnAction =
+        VALUE_PATTERNS.relativeUp.test(part) ||
+        VALUE_PATTERNS.relativeDown.test(part) ||
+        VALUE_PATTERNS.enable.test(part) ||
+        VALUE_PATTERNS.disable.test(part) ||
+        /^(?:make|set|change|use)/i.test(part);
+
+      if (hasOwnAction) {
+        subCommands.push(part);
+      } else if (prefix) {
+        // Apply the prefix from the first part
+        subCommands.push(prefix + part);
+      } else {
+        // Try to infer action from context
+        subCommands.push('make it ' + part);
+      }
+    }
+  }
+
+  return subCommands.length > 0 ? subCommands : [normalizedMessage];
+}
+
+// ============================================================================
 // MAIN PARSER FUNCTION
 // ============================================================================
 
 /**
  * Parse a natural language message into AI control commands
+ * Supports compound commands like "make it faster and brighter"
  */
 export function parseAIControlIntent(
   userMessage: string,
   selectedLyricIndices: Set<number>,
   lyrics: LyricLine[]
 ): AIControlResponse {
-  const normalizedMessage = userMessage.toLowerCase().trim();
+  // Split compound commands
+  const subCommands = splitCompoundCommand(userMessage);
+  const allCommands: AIControlCommand[] = [];
+  const allSuggestions: string[] = [];
 
-  // Find matching controls
-  const matchedControls = findControlsByNaturalLanguage(normalizedMessage);
+  // Determine scope once (applies to all sub-commands)
+  const scope = determineScope(userMessage.toLowerCase().trim(), selectedLyricIndices, lyrics);
 
-  if (matchedControls.length === 0) {
-    // Try to suggest controls based on partial matches
-    const suggestions = getSuggestedControls(normalizedMessage);
+  // Process each sub-command
+  for (const subCommand of subCommands) {
+    const normalizedMessage = subCommand.toLowerCase().trim();
+
+    // Find matching controls
+    const matchedControls = findControlsByNaturalLanguage(normalizedMessage);
+
+    if (matchedControls.length === 0) {
+      // Collect suggestions but continue processing other sub-commands
+      const suggestions = getSuggestedControls(normalizedMessage);
+      allSuggestions.push(...suggestions);
+      continue;
+    }
+
+    // Parse commands for each matched control
+    for (const control of matchedControls) {
+      const command = parseCommandForControl(normalizedMessage, control, scope);
+      if (command) {
+        allCommands.push(command);
+      }
+    }
+  }
+
+  // If no commands were parsed at all
+  if (allCommands.length === 0) {
+    const uniqueSuggestions = [...new Set(allSuggestions)].slice(0, 5);
     return {
       understood: false,
       commands: [],
       clarificationNeeded:
-        "I couldn't identify which setting you want to adjust. Could you be more specific?",
-      suggestedControls: suggestions,
-    };
-  }
-
-  // Determine scope
-  const scope = determineScope(normalizedMessage, selectedLyricIndices, lyrics);
-
-  // Parse commands for each matched control
-  const commands: AIControlCommand[] = [];
-  for (const control of matchedControls) {
-    const command = parseCommandForControl(normalizedMessage, control, scope);
-    if (command) {
-      commands.push(command);
-    }
-  }
-
-  // If we matched controls but couldn't parse any commands
-  if (commands.length === 0 && matchedControls.length > 0) {
-    return {
-      understood: false,
-      commands: [],
-      clarificationNeeded: `I found ${matchedControls[0].displayName}, but couldn't determine what to do with it. Try "increase ${matchedControls[0].displayName.toLowerCase()}" or "set ${matchedControls[0].displayName.toLowerCase()} to [value]".`,
-      suggestedControls: matchedControls.map((c) => c.displayName),
+        subCommands.length > 1
+          ? "I couldn't identify the settings you want to adjust. Could you be more specific about each change?"
+          : "I couldn't identify which setting you want to adjust. Could you be more specific?",
+      suggestedControls: uniqueSuggestions,
     };
   }
 
   return {
-    understood: commands.length > 0,
-    commands,
-    clarificationNeeded:
-      commands.length === 0 ? 'I understood the setting but not the action.' : undefined,
+    understood: true,
+    commands: allCommands,
+    clarificationNeeded: undefined,
   };
 }
 
