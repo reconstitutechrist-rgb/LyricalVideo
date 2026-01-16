@@ -30,6 +30,9 @@ const _TRACK_HEIGHT = 40;
 const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 4;
 
+// Touch-friendly playhead size
+const PLAYHEAD_TOUCH_WIDTH = 44; // Minimum touch target size
+
 export const Timeline: React.FC<TimelineProps> = ({
   duration: durationProp,
   currentTime: currentTimeProp,
@@ -98,10 +101,21 @@ export const Timeline: React.FC<TimelineProps> = ({
 
   // Handle playhead drag
   const handleTimelineClick = useCallback(
-    (e: React.MouseEvent) => {
+    (e: React.MouseEvent | React.TouchEvent) => {
       if (!timelineRef.current) return;
       const rect = timelineRef.current.getBoundingClientRect();
-      const x = e.clientX - rect.left + scrollLeft;
+
+      // Get clientX from either mouse or touch event
+      let clientX: number;
+      if ('touches' in e && e.touches.length > 0) {
+        clientX = e.touches[0].clientX;
+      } else if ('clientX' in e) {
+        clientX = e.clientX;
+      } else {
+        return;
+      }
+
+      const x = clientX - rect.left + scrollLeft;
       const time = Math.max(0, Math.min(duration, x / pixelsPerSecond));
       onSeek(time);
     },
@@ -109,29 +123,61 @@ export const Timeline: React.FC<TimelineProps> = ({
   );
 
   const handlePlayheadDrag = useCallback(
-    (e: MouseEvent) => {
+    (e: MouseEvent | TouchEvent) => {
       if (!isDragging || !timelineRef.current) return;
       const rect = timelineRef.current.getBoundingClientRect();
-      const x = e.clientX - rect.left + scrollLeft;
+
+      // Get clientX from either mouse or touch event
+      let clientX: number;
+      if ('touches' in e && e.touches.length > 0) {
+        clientX = e.touches[0].clientX;
+      } else if ('clientX' in e) {
+        clientX = e.clientX;
+      } else {
+        return;
+      }
+
+      const x = clientX - rect.left + scrollLeft;
       const time = Math.max(0, Math.min(duration, x / pixelsPerSecond));
       onSeek(time);
     },
     [isDragging, scrollLeft, pixelsPerSecond, duration, onSeek]
   );
 
-  // Stable reference for mouseup handler to avoid memory leak
-  const handleMouseUp = useCallback(() => setIsDragging(false), []);
+  // Stable reference for end handler to avoid memory leak
+  const handleDragEnd = useCallback(() => setIsDragging(false), []);
+
+  // Handle touch start on playhead
+  const handlePlayheadTouchStart = useCallback((e: React.TouchEvent) => {
+    e.stopPropagation();
+    setIsDragging(true);
+  }, []);
+
+  // Handle mouse down on playhead
+  const handlePlayheadMouseDown = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsDragging(true);
+  }, []);
 
   useEffect(() => {
     if (isDragging) {
+      // Mouse events
       window.addEventListener('mousemove', handlePlayheadDrag);
-      window.addEventListener('mouseup', handleMouseUp);
+      window.addEventListener('mouseup', handleDragEnd);
+      // Touch events
+      window.addEventListener('touchmove', handlePlayheadDrag, { passive: false });
+      window.addEventListener('touchend', handleDragEnd);
+      window.addEventListener('touchcancel', handleDragEnd);
+
       return () => {
         window.removeEventListener('mousemove', handlePlayheadDrag);
-        window.removeEventListener('mouseup', handleMouseUp);
+        window.removeEventListener('mouseup', handleDragEnd);
+        window.removeEventListener('touchmove', handlePlayheadDrag);
+        window.removeEventListener('touchend', handleDragEnd);
+        window.removeEventListener('touchcancel', handleDragEnd);
       };
     }
-  }, [isDragging, handlePlayheadDrag, handleMouseUp]);
+  }, [isDragging, handlePlayheadDrag, handleDragEnd]);
 
   // Auto-scroll to keep playhead visible
   useEffect(() => {
@@ -267,13 +313,20 @@ export const Timeline: React.FC<TimelineProps> = ({
               />
             ))}
 
-            {/* Playhead */}
+            {/* Playhead with touch-friendly hit area */}
             <div
-              className="absolute top-0 bottom-0 w-0.5 bg-red-500 cursor-ew-resize z-10 pointer-events-auto"
-              style={{ left: `${currentTime * pixelsPerSecond}px` }}
-              onMouseDown={() => setIsDragging(true)}
+              className="absolute top-0 bottom-0 z-10 pointer-events-auto touch-none"
+              style={{
+                left: `${currentTime * pixelsPerSecond - PLAYHEAD_TOUCH_WIDTH / 2}px`,
+                width: `${PLAYHEAD_TOUCH_WIDTH}px`,
+              }}
+              onMouseDown={handlePlayheadMouseDown}
+              onTouchStart={handlePlayheadTouchStart}
             >
-              <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-3 h-3 bg-red-500 rotate-45" />
+              {/* Visual playhead line (centered within touch area) */}
+              <div className="absolute top-0 bottom-0 w-0.5 bg-red-500 left-1/2 -translate-x-1/2">
+                <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-3 h-3 bg-red-500 rotate-45" />
+              </div>
             </div>
           </div>
         </div>

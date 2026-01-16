@@ -7,6 +7,9 @@ import {
   getSectionColor,
 } from '../../../services/audioAnalysisService';
 
+// Minimum touch target size (44px recommended)
+const TOUCH_HANDLE_WIDTH = 16; // Wider handles for touch
+
 export const LyricBlockLayer: React.FC<LyricBlockLayerProps> = ({
   lyrics,
   width,
@@ -32,31 +35,50 @@ export const LyricBlockLayer: React.FC<LyricBlockLayerProps> = ({
   const visibleStart = (scrollOffset / totalWidth) * duration;
   const visibleEnd = ((scrollOffset + width) / totalWidth) * duration;
 
-  const handleBlockMouseDown = useCallback(
-    (e: React.MouseEvent, index: number, dragType: 'move' | 'resize-start' | 'resize-end') => {
+  // Unified position extraction for mouse and touch events
+  const getClientX = useCallback(
+    (e: MouseEvent | TouchEvent | React.MouseEvent | React.TouchEvent): number => {
+      if ('touches' in e && e.touches.length > 0) {
+        return e.touches[0].clientX;
+      } else if ('changedTouches' in e && e.changedTouches.length > 0) {
+        return e.changedTouches[0].clientX;
+      } else if ('clientX' in e) {
+        return e.clientX;
+      }
+      return 0;
+    },
+    []
+  );
+
+  const handleBlockDragStart = useCallback(
+    (
+      e: React.MouseEvent | React.TouchEvent,
+      index: number,
+      dragType: 'move' | 'resize-start' | 'resize-end'
+    ) => {
       e.stopPropagation();
-      e.preventDefault();
+      if ('preventDefault' in e) e.preventDefault();
 
       const lyric = lyrics[index];
       setDragState({
         isDragging: true,
         dragType,
         lyricIndex: index,
-        startX: e.clientX,
+        startX: getClientX(e),
         originalStartTime: lyric.startTime,
         originalEndTime: lyric.endTime,
       });
 
       onSelectLyric(index);
     },
-    [lyrics, onSelectLyric]
+    [lyrics, onSelectLyric, getClientX]
   );
 
-  const handleMouseMove = useCallback(
-    (e: MouseEvent) => {
+  const handleDragMove = useCallback(
+    (e: MouseEvent | TouchEvent) => {
       if (!dragState.isDragging || dragState.lyricIndex === null) return;
 
-      const deltaX = e.clientX - dragState.startX;
+      const deltaX = getClientX(e) - dragState.startX;
       const deltaTime = (deltaX / (width * zoom)) * duration;
 
       const lyric = lyrics[dragState.lyricIndex];
@@ -95,10 +117,10 @@ export const LyricBlockLayer: React.FC<LyricBlockLayerProps> = ({
         endTime: Number(newEndTime.toFixed(3)),
       });
     },
-    [dragState, lyrics, width, zoom, duration, onLyricUpdate]
+    [dragState, lyrics, width, zoom, duration, onLyricUpdate, getClientX]
   );
 
-  const handleMouseUp = useCallback(() => {
+  const handleDragEnd = useCallback(() => {
     setDragState({
       isDragging: false,
       dragType: null,
@@ -111,14 +133,23 @@ export const LyricBlockLayer: React.FC<LyricBlockLayerProps> = ({
 
   useEffect(() => {
     if (dragState.isDragging) {
-      window.addEventListener('mousemove', handleMouseMove);
-      window.addEventListener('mouseup', handleMouseUp);
+      // Mouse events
+      window.addEventListener('mousemove', handleDragMove);
+      window.addEventListener('mouseup', handleDragEnd);
+      // Touch events
+      window.addEventListener('touchmove', handleDragMove, { passive: false });
+      window.addEventListener('touchend', handleDragEnd);
+      window.addEventListener('touchcancel', handleDragEnd);
+
       return () => {
-        window.removeEventListener('mousemove', handleMouseMove);
-        window.removeEventListener('mouseup', handleMouseUp);
+        window.removeEventListener('mousemove', handleDragMove);
+        window.removeEventListener('mouseup', handleDragEnd);
+        window.removeEventListener('touchmove', handleDragMove);
+        window.removeEventListener('touchend', handleDragEnd);
+        window.removeEventListener('touchcancel', handleDragEnd);
       };
     }
-  }, [dragState.isDragging, handleMouseMove, handleMouseUp]);
+  }, [dragState.isDragging, handleDragMove, handleDragEnd]);
 
   return (
     <div
@@ -151,18 +182,23 @@ export const LyricBlockLayer: React.FC<LyricBlockLayerProps> = ({
               transition: dragState.isDragging ? 'none' : 'box-shadow 0.15s',
             }}
             onClick={() => onSelectLyric(index)}
-            onMouseDown={(e) => handleBlockMouseDown(e, index, 'move')}
+            onMouseDown={(e) => handleBlockDragStart(e, index, 'move')}
+            onTouchStart={(e) => handleBlockDragStart(e, index, 'move')}
           >
-            {/* Left resize handle */}
+            {/* Left resize handle - wider for touch */}
             <div
-              className="absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-white/20 rounded-l"
-              onMouseDown={(e) => handleBlockMouseDown(e, index, 'resize-start')}
+              className="absolute left-0 top-0 bottom-0 cursor-ew-resize hover:bg-white/20 rounded-l touch-none"
+              style={{ width: `${TOUCH_HANDLE_WIDTH}px` }}
+              onMouseDown={(e) => handleBlockDragStart(e, index, 'resize-start')}
+              onTouchStart={(e) => handleBlockDragStart(e, index, 'resize-start')}
             />
 
-            {/* Right resize handle */}
+            {/* Right resize handle - wider for touch */}
             <div
-              className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-white/20 rounded-r"
-              onMouseDown={(e) => handleBlockMouseDown(e, index, 'resize-end')}
+              className="absolute right-0 top-0 bottom-0 cursor-ew-resize hover:bg-white/20 rounded-r touch-none"
+              style={{ width: `${TOUCH_HANDLE_WIDTH}px` }}
+              onMouseDown={(e) => handleBlockDragStart(e, index, 'resize-end')}
+              onTouchStart={(e) => handleBlockDragStart(e, index, 'resize-end')}
             />
 
             {/* Lyric text */}

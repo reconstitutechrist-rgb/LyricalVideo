@@ -755,10 +755,10 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
       const pulse = 1 + (pulseFreqValue / 255) * 0.5 * settings.intensity;
       const time = Date.now() * 0.002 * settings.particleSpeed;
 
-      // 2. Camera Shake Physics
+      // 2. Camera Shake Physics (disabled in lyrics-only mode)
       let shakeX = 0;
       let shakeY = 0;
-      if (settings.cameraShake) {
+      if (settings.cameraShake && !settings.lyricsOnlyMode) {
         const threshold = 160;
         if (bassFreq > threshold) {
           const shakeIntensity = Math.pow((bassFreq - threshold) / (255 - threshold), 2);
@@ -799,679 +799,720 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
       ctx.translate(shakeX, shakeY);
 
       if (backgroundAsset) {
-        const baseOpacity = effectiveStyle === VisualStyle.CINEMATIC_BACKDROP ? 0.6 : 0.25;
-        let opacity = baseOpacity;
-
-        // --- BASS PULSATING LOGIC ---
-        // Scale and opacity are modulated by bass frequency specifically
-        const bassActivity = bassFreq / 255;
-
-        if (settings.dynamicBackgroundOpacity) {
-          // Strong pulsation
-          opacity = baseOpacity + (1.0 - baseOpacity) * bassActivity * settings.intensity;
-        } else {
-          // Subtle, constant pulsating "breathing" effect synced to bass
-          opacity = baseOpacity + 0.1 * bassActivity * settings.intensity;
-        }
-
-        if (opacity > 1.0) opacity = 1.0;
-        if (opacity < 0.1) opacity = 0.1;
-
-        ctx.save();
-        ctx.globalAlpha = opacity;
-        ctx.globalCompositeOperation = settings.backgroundBlendMode;
-
-        const baseZoom = 1.05;
-        // Bass-driven zoom
-        const bassZoom = bassActivity * 0.08 * settings.intensity;
-        const totalZoom = baseZoom + bassZoom;
-
-        // Standard slow drift
-        const safePanX = (width * (baseZoom - 1)) / 2;
-        const safePanY = (height * (baseZoom - 1)) / 2;
-        const panX = Math.sin(time * 0.5) * safePanX;
-        const panY = Math.cos(time * 0.3) * safePanY;
-
-        ctx.translate(width / 2 + panX, height / 2 + panY);
-        ctx.scale(totalZoom, totalZoom);
-
-        const drawX = -width / 2;
-        const drawY = -height / 2;
-
-        if (backgroundAsset.type === 'video' && videoRef.current) {
-          if (videoRef.current.readyState >= 2) {
-            ctx.drawImage(videoRef.current, drawX, drawY, width, height);
-          }
-        } else if (backgroundAsset.type === 'image' && bgImageRef.current) {
-          ctx.drawImage(bgImageRef.current, drawX, drawY, width, height);
-        }
-        ctx.restore();
-
-        const overlayOpacity = effectiveStyle === VisualStyle.CINEMATIC_BACKDROP ? 0.3 : 0.5;
-        ctx.fillStyle = `rgba(0,0,0,${overlayOpacity})`;
-        ctx.fillRect(0, 0, width, height);
-      }
-
-      if (effectiveStyle === VisualStyle.NEON_PULSE) {
-        // Update particle physics
-        particlesRef.current.forEach((p) => {
-          p.update(
-            motionFreqValue,
-            pulseFreqValue,
-            width,
-            height,
-            settings.particleSpeed,
-            settings.intensity,
-            settings.speedX,
-            settings.speedY,
-            settings.trailsEnabled
-          );
-        });
-
-        // Render particles - use WebGL if available, fall back to Canvas 2D
-        if (useWebGLRef.current && webglParticleRendererRef.current && !settings.trailsEnabled) {
-          // WebGL rendering (faster for many particles, but doesn't support trails yet)
-          // Use pre-allocated pool to avoid per-frame allocations
-          const pool = particleDataPoolRef.current;
-          const particles = particlesRef.current;
-          const count = Math.min(particles.length, pool.length);
-
-          for (let i = 0; i < count; i++) {
-            const p = particles[i];
-            const data = pool[i];
-
-            // Update pooled object in-place (no allocation)
-            data.x = p.x;
-            data.y = p.y;
-            data.size = p.size;
-            data.opacity = 0.8;
-
-            // Parse HSL color to RGB
-            const hslMatch = p.color.match(/hsla?\((\d+),\s*(\d+)%,\s*(\d+)%/);
-            if (hslMatch) {
-              const h = parseInt(hslMatch[1]) / 360;
-              const s = parseInt(hslMatch[2]) / 100;
-              const l = parseInt(hslMatch[3]) / 100;
-              const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
-              const pp = 2 * l - q;
-              data.r = hue2rgb(pp, q, h + 1 / 3);
-              data.g = hue2rgb(pp, q, h);
-              data.b = hue2rgb(pp, q, h - 1 / 3);
-            } else {
-              data.r = 1;
-              data.g = 1;
-              data.b = 1;
-            }
-          }
-
-          webglParticleRendererRef.current.updateParticles(pool, count);
-          const particleCanvas = webglParticleRendererRef.current.render();
-          ctx.drawImage(particleCanvas, 0, 0, width, height);
-        } else {
-          // Canvas 2D fallback (supports trails)
-          particlesRef.current.forEach((p) => {
-            p.draw(ctx, settings.trailsEnabled);
-          });
-        }
-
-        // Draw central orb (always Canvas 2D - single draw call)
-        let orbColor = '#00ffff';
-        if (sentimentColor) orbColor = sentimentColor;
-        else if (effectivePalette === 'sunset') orbColor = '#ffaa00';
-        else if (effectivePalette === 'fire') orbColor = '#ff4400';
-        else if (effectivePalette === 'matrix') orbColor = '#00ff00';
-
-        ctx.shadowBlur = (20 + colorFreqValue * 0.5) * settings.intensity;
-        ctx.shadowColor = orbColor;
-        ctx.beginPath();
-        ctx.arc(width / 2, height / 2, (Math.min(width, height) / 4) * pulse, 0, 2 * Math.PI);
-        ctx.strokeStyle = orbColor;
-        ctx.lineWidth = 4;
-        ctx.stroke();
-        ctx.shadowBlur = 0;
-      } else if (effectiveStyle === VisualStyle.LIQUID_DREAM) {
-        // Optimized LIQUID_DREAM: Use LOD and batch drawing
-        ctx.lineWidth = 2 * settings.intensity;
-
-        // LOD: Use larger step size for wider canvases to reduce draw calls
-        const step = width > 1920 ? 20 : width > 1280 ? 15 : 10;
-        const waveMotion = motionFreqValue / 255;
-
-        // Pre-compute time-based values once per frame
-        const timeOffset = time * 10 + 200;
-        const timeWaveOffset = time * (1 + waveMotion);
-
-        for (let i = 0; i < 5; i++) {
-          ctx.beginPath();
-          ctx.strokeStyle = sentimentColor
-            ? sentimentColor
-            : `hsla(${i * 40 + timeOffset}, 70%, 60%, 0.5)`;
-
-          // Pre-compute wave-specific offsets
-          const wavePhase = time + i;
-          const amplitude1 = 50 * pulse;
-          const amplitude2 = 20;
-
-          // First point - use moveTo
-          const y0 =
-            height / 2 + Math.sin(wavePhase) * amplitude1 + Math.sin(-timeWaveOffset) * amplitude2;
-          ctx.moveTo(0, y0);
-
-          // Batch all line segments
-          for (let x = step; x <= width; x += step) {
-            const y =
-              height / 2 +
-              Math.sin(x * 0.01 + wavePhase) * amplitude1 +
-              Math.sin(x * 0.02 - timeWaveOffset) * amplitude2;
-            ctx.lineTo(x, y);
-          }
-          ctx.stroke();
-        }
-      } else if (effectiveStyle === VisualStyle.GLITCH_CYBER) {
-        ctx.fillStyle = `rgba(0, 0, 0, ${0.15 * settings.intensity})`;
-        for (let y = 0; y < height; y += 4) ctx.fillRect(0, y, width, 2);
-        if (
-          Math.random() < settings.glitchFrequency * 0.4 ||
-          motionFreqValue > 200 - settings.glitchFrequency * 100
-        ) {
-          const numGlitches = Math.floor(Math.random() * 5 * settings.intensity) + 1;
-          for (let k = 0; k < numGlitches; k++) {
-            const hSlice = Math.random() * height;
-            const hSize = Math.random() * 50 * settings.intensity;
-            ctx.fillStyle = sentimentColor || 'rgba(0, 255, 0, 0.5)';
-            ctx.fillRect(0, hSlice, width, hSize);
-          }
-        }
-      } else if (effectiveStyle === VisualStyle.KALEIDOSCOPE) {
-        ctx.save();
-        ctx.translate(width / 2, height / 2);
-        ctx.rotate(time * 0.1);
-
-        const segments = 8;
-        const angleStep = (Math.PI * 2) / segments;
-
-        for (let i = 0; i < segments; i++) {
+        if (settings.lyricsOnlyMode) {
+          // Lyrics-only mode: static background, no effects
           ctx.save();
-          ctx.rotate(i * angleStep);
-
-          const drawSlice = () => {
-            ctx.beginPath();
-            const dataLen = 20;
-            let prevX = 0;
-            let prevY = 0;
-            for (let j = 0; j < dataLen; j++) {
-              const index = j * 3;
-              const val = dataArrayRef.current ? dataArrayRef.current[index] : 0;
-              const intensityMult = pulseFreqValue / 255 + 0.5;
-              const normalized = (val / 255) * settings.intensity * intensityMult;
-              const dist = j * (Math.min(width, height) / 2 / dataLen) * 0.8 + 20;
-              const x = dist;
-              const y = normalized * 40 * Math.sin(time * 2 + j);
-
-              let strokeStyle = '';
-              let fillStyle = '';
-
-              if (sentimentColor) {
-                strokeStyle = sentimentColor;
-                fillStyle = sentimentColor;
-              } else {
-                let hue = (time * 10 + j * 10) % 360;
-                if (effectivePalette === 'neon') hue = 280 + j * 5 + val / 2;
-                else if (effectivePalette === 'sunset') hue = 10 + j * 5;
-                else if (effectivePalette === 'ocean') hue = 180 + j * 5;
-                else if (effectivePalette === 'matrix') hue = 100 + val;
-                else if (effectivePalette === 'fire') hue = j * 3;
-                strokeStyle = `hsla(${hue}, 80%, 60%, 0.6)`;
-                fillStyle = `hsla(${hue}, 80%, 60%, 0.4)`;
-              }
-
-              ctx.strokeStyle = strokeStyle;
-              ctx.fillStyle = fillStyle;
-              ctx.lineWidth = 2;
-              if (j > 0) {
-                ctx.beginPath();
-                ctx.moveTo(prevX, prevY);
-                ctx.lineTo(x, y);
-                ctx.stroke();
-              }
-              ctx.beginPath();
-              ctx.arc(x, y, 2 + normalized * 10, 0, Math.PI * 2);
-              ctx.fill();
-              prevX = x;
-              prevY = y;
+          ctx.globalAlpha = 0.9;
+          if (backgroundAsset.type === 'video' && videoRef.current) {
+            if (videoRef.current.readyState >= 2) {
+              ctx.drawImage(videoRef.current, 0, 0, width, height);
             }
-          };
-
-          drawSlice();
-          ctx.scale(1, -1);
-          drawSlice();
+          } else if (backgroundAsset.type === 'image' && bgImageRef.current) {
+            ctx.drawImage(bgImageRef.current, 0, 0, width, height);
+          }
           ctx.restore();
-        }
-        ctx.restore();
-      } else if (effectiveStyle === VisualStyle.CHROMATIC_WAVE) {
-        // Chromatic Wave Style
-        // Fluid, overlapping waves shifting colors
-        const layers = 5;
+          // Light overlay for text readability
+          ctx.fillStyle = 'rgba(0,0,0,0.3)';
+          ctx.fillRect(0, 0, width, height);
+        } else {
+          // Normal mode: animated background with effects
+          const baseOpacity = effectiveStyle === VisualStyle.CINEMATIC_BACKDROP ? 0.6 : 0.25;
+          let opacity = baseOpacity;
 
-        for (let i = 0; i < layers; i++) {
-          ctx.beginPath();
+          // --- BASS PULSATING LOGIC ---
+          // Scale and opacity are modulated by bass frequency specifically
+          const bassActivity = bassFreq / 255;
 
-          // Determine color based on palette and frequency
-          let hue = 0;
-          const freqMod = (colorFreqValue / 255) * 50; // Modulate hue by treble
-
-          if (effectivePalette === 'neon') hue = 280 + i * 15 + freqMod;
-          else if (effectivePalette === 'sunset')
-            hue = 340 + i * 20 + freqMod; // Pink/Red/Orange
-          else if (effectivePalette === 'ocean') hue = 190 + i * 10 + freqMod;
-          else if (effectivePalette === 'matrix') hue = 100 + i * 5 + freqMod;
-          else if (effectivePalette === 'fire') hue = 0 + i * 10 + freqMod;
-          else hue = (time * 20 + i * 30) % 360;
-
-          const saturation = 70 + (pulseFreqValue / 255) * 30;
-          const lightness = 50 + i * 5;
-          const alpha = (0.4 / (i + 1)) * settings.intensity;
-
-          ctx.fillStyle =
-            sentimentColor && i === 0
-              ? sentimentColor
-              : `hsla(${hue}, ${saturation}%, ${lightness}%, ${alpha})`;
-
-          ctx.strokeStyle = `hsla(${hue}, ${saturation}%, ${lightness + 20}%, ${alpha + 0.2})`;
-          ctx.lineWidth = 2;
-
-          // Wave parameters
-          const waveSpeed = time * (0.5 + i * 0.1) * (motionFreqValue / 255 + 0.5);
-          const amplitude = (height / 6) * settings.intensity * (bassFreq / 100 + 0.5);
-          const frequency = 0.005 + i * 0.002;
-          const verticalShift = height / 2 + i * 20 - layers * 10;
-
-          ctx.moveTo(0, height);
-
-          // Draw sine wave
-          for (let x = 0; x <= width; x += 15) {
-            // Main wave component
-            const y1 = Math.sin(x * frequency + waveSpeed) * amplitude;
-            // Secondary component for complexity
-            const y2 = Math.cos(x * frequency * 2.3 - waveSpeed * 0.8) * (amplitude * 0.5);
-
-            // Add some noise from audio data directly
-            const audioIdx = Math.floor((x / width) * 50) + i * 10;
-            const audioNoise =
-              (dataArrayRef.current?.[audioIdx % 128] || 0) * 0.2 * settings.intensity;
-
-            ctx.lineTo(x, verticalShift + y1 + y2 - audioNoise);
+          if (settings.dynamicBackgroundOpacity) {
+            // Strong pulsation
+            opacity = baseOpacity + (1.0 - baseOpacity) * bassActivity * settings.intensity;
+          } else {
+            // Subtle, constant pulsating "breathing" effect synced to bass
+            opacity = baseOpacity + 0.1 * bassActivity * settings.intensity;
           }
 
-          ctx.lineTo(width, height);
-          ctx.lineTo(0, height);
-          ctx.fill();
-          ctx.stroke();
-        }
-      } else if (effectiveStyle === VisualStyle.AURORA_BOREALIS) {
-        // Aurora Borealis Style
-        // Flowing vertical curtains of light that shift and shimmer
-        const curtainCount = 5;
-        const waveOffset = currentTime * 0.3;
+          if (opacity > 1.0) opacity = 1.0;
+          if (opacity < 0.1) opacity = 0.1;
 
-        for (let c = 0; c < curtainCount; c++) {
-          const hue = (120 + c * 40 + Math.sin(currentTime * 0.2 + c) * 30) % 360;
-          const saturation = 70 + (bassFreq / 255) * 20;
-          const lightness = 40 + (trebleFreq / 255) * 20;
+          ctx.save();
+          ctx.globalAlpha = opacity;
+          ctx.globalCompositeOperation = settings.backgroundBlendMode;
 
-          ctx.fillStyle = `hsla(${hue}, ${saturation}%, ${lightness}%, ${0.15 * settings.intensity})`;
+          const baseZoom = 1.05;
+          // Bass-driven zoom
+          const bassZoom = bassActivity * 0.08 * settings.intensity;
+          const totalZoom = baseZoom + bassZoom;
 
-          ctx.beginPath();
-          ctx.moveTo(0, 0);
+          // Standard slow drift
+          const safePanX = (width * (baseZoom - 1)) / 2;
+          const safePanY = (height * (baseZoom - 1)) / 2;
+          const panX = Math.sin(time * 0.5) * safePanX;
+          const panY = Math.cos(time * 0.3) * safePanY;
 
-          for (let y = 0; y <= height; y += 10) {
-            const noise1 = Math.sin(y * 0.01 + waveOffset + c * 0.5) * 100;
-            const noise2 = Math.cos(y * 0.02 - waveOffset * 0.7 + c) * 50;
-            const audioOffset = (midFreq / 255) * 30 * Math.sin(y * 0.015 + c);
-            const x = width * (0.15 + c * 0.15) + noise1 + noise2 + audioOffset;
+          ctx.translate(width / 2 + panX, height / 2 + panY);
+          ctx.scale(totalZoom, totalZoom);
 
-            ctx.lineTo(x, y);
+          const drawX = -width / 2;
+          const drawY = -height / 2;
+
+          if (backgroundAsset.type === 'video' && videoRef.current) {
+            if (videoRef.current.readyState >= 2) {
+              ctx.drawImage(videoRef.current, drawX, drawY, width, height);
+            }
+          } else if (backgroundAsset.type === 'image' && bgImageRef.current) {
+            ctx.drawImage(bgImageRef.current, drawX, drawY, width, height);
           }
+          ctx.restore();
 
-          ctx.lineTo(width * (0.25 + c * 0.15), height);
-          ctx.lineTo(0, height);
-          ctx.closePath();
-          ctx.fill();
-        }
-      } else if (effectiveStyle === VisualStyle.WATER_RIPPLE) {
-        // Water Ripple Style
-        // Concentric ripples emanating from center
-        const rippleCount = 8;
-        const rippleSpeed = currentTime * 2;
-        const bassPulse = 1 + (bassFreq / 255) * 0.5;
-
-        ctx.fillStyle = '#001830';
-        ctx.fillRect(0, 0, width, height);
-
-        for (let r = rippleCount; r >= 0; r--) {
-          const baseRadius = (r / rippleCount) * Math.max(width, height) * 0.8;
-          const animatedRadius =
-            baseRadius + ((rippleSpeed * 50) % (Math.max(width, height) * 0.8));
-          const alpha = 0.15 * (1 - r / rippleCount) * settings.intensity;
-
-          ctx.strokeStyle = `hsla(${200 + r * 10}, 80%, ${50 + (trebleFreq / 255) * 20}%, ${alpha})`;
-          ctx.lineWidth = 2 + (bassFreq / 255) * 3;
-
-          ctx.beginPath();
-          ctx.arc(width / 2, height / 2, animatedRadius * bassPulse, 0, Math.PI * 2);
-          ctx.stroke();
-        }
-
-        // Caustic light patterns
-        for (let i = 0; i < 15; i++) {
-          const angle = (i / 15) * Math.PI * 2 + currentTime * 0.5;
-          const dist = 100 + Math.sin(currentTime + i) * 50;
-          const x = width / 2 + Math.cos(angle) * dist;
-          const y = height / 2 + Math.sin(angle) * dist * 0.5;
-
-          const gradient = ctx.createRadialGradient(x, y, 0, x, y, 30);
-          gradient.addColorStop(0, `rgba(100, 200, 255, ${0.1 * settings.intensity})`);
-          gradient.addColorStop(1, 'transparent');
-
-          ctx.fillStyle = gradient;
-          ctx.beginPath();
-          ctx.arc(x, y, 30, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      } else if (effectiveStyle === VisualStyle.FIRE_EMBERS) {
-        // Fire Embers Style
-        // Rising ember particles with heat distortion
-        const emberCount = 50;
-        const flameHeight = height * 0.6;
-
-        // Dark gradient background
-        const bgGrad = ctx.createLinearGradient(0, 0, 0, height);
-        bgGrad.addColorStop(0, '#1a0a00');
-        bgGrad.addColorStop(0.5, '#2a0a00');
-        bgGrad.addColorStop(1, '#4a1a00');
-        ctx.fillStyle = bgGrad;
-        ctx.fillRect(0, 0, width, height);
-
-        // Draw flames at bottom
-        for (let f = 0; f < 20; f++) {
-          const flameX = (f / 20) * width;
-          const _flameY = height;
-          const waveOffset = Math.sin(currentTime * 3 + f) * 20;
-          const flameH = flameHeight * (0.5 + (bassFreq / 255) * 0.5 + Math.random() * 0.3);
-
-          const flameGrad = ctx.createLinearGradient(flameX, height, flameX, height - flameH);
-          flameGrad.addColorStop(0, `rgba(255, 100, 0, ${0.9 * settings.intensity})`);
-          flameGrad.addColorStop(0.3, `rgba(255, 50, 0, ${0.6 * settings.intensity})`);
-          flameGrad.addColorStop(0.6, `rgba(200, 0, 0, ${0.3 * settings.intensity})`);
-          flameGrad.addColorStop(1, 'transparent');
-
-          ctx.fillStyle = flameGrad;
-          ctx.beginPath();
-          ctx.moveTo(flameX - 30, height);
-          ctx.quadraticCurveTo(flameX + waveOffset, height - flameH * 0.6, flameX, height - flameH);
-          ctx.quadraticCurveTo(flameX - waveOffset, height - flameH * 0.6, flameX + 30, height);
-          ctx.fill();
-        }
-
-        // Draw embers
-        for (let e = 0; e < emberCount; e++) {
-          const seed = e * 1.618;
-          const emberX = ((seed * 234.5) % 1) * width;
-          const emberY = height - ((currentTime * 100 + seed * 200) % height);
-          const emberSize = 2 + Math.sin(currentTime + e) * 1.5;
-          const hue = 30 - (emberY / height) * 30;
-
-          ctx.fillStyle = `hsla(${hue}, 100%, ${50 + (emberY / height) * 20}%, ${0.8 * settings.intensity})`;
-          ctx.beginPath();
-          ctx.arc(emberX + Math.sin(currentTime * 2 + e) * 10, emberY, emberSize, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      } else if (effectiveStyle === VisualStyle.VHS_RETRO) {
-        // VHS Retro Style
-        // 80s VHS aesthetic with tracking lines and chromatic aberration
-        ctx.fillStyle = '#000';
-        ctx.fillRect(0, 0, width, height);
-
-        // Chromatic aberration offset
-        const _aberrationOffset = 3 + (bassFreq / 255) * 5;
-
-        // Scanlines
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.02)';
-        for (let y = 0; y < height; y += 4) {
-          ctx.fillRect(0, y, width, 1);
-        }
-
-        // Tracking distortion bands
-        const trackingNoise = settings.intensity * 0.5;
-        for (let i = 0; i < 3; i++) {
-          const bandY = ((currentTime * 50 + i * 100) % (height + 50)) - 25;
-          const bandHeight = 10 + Math.random() * 20;
-
-          ctx.fillStyle = `rgba(255, 255, 255, ${0.05 * trackingNoise})`;
-          ctx.fillRect(0, bandY, width, bandHeight);
-        }
-
-        // Static noise
-        const staticIntensity = 0.1 + (trebleFreq / 255) * 0.2;
-        for (let i = 0; i < 100 * staticIntensity; i++) {
-          const x = Math.random() * width;
-          const y = Math.random() * height;
-          const size = Math.random() * 3;
-          ctx.fillStyle = `rgba(255, 255, 255, ${Math.random() * 0.5})`;
-          ctx.fillRect(x, y, size, size);
-        }
-
-        // Color bleed effect
-        const gradient = ctx.createLinearGradient(0, 0, width, 0);
-        gradient.addColorStop(0, `rgba(255, 0, 0, ${0.05 * settings.intensity})`);
-        gradient.addColorStop(0.5, 'transparent');
-        gradient.addColorStop(1, `rgba(0, 255, 255, ${0.05 * settings.intensity})`);
-        ctx.fillStyle = gradient;
-        ctx.fillRect(0, 0, width, height);
-      } else if (effectiveStyle === VisualStyle.FILM_NOIR) {
-        // Film Noir Style
-        // Classic black and white with deep vignette and grain
-        ctx.fillStyle = '#0a0a0a';
-        ctx.fillRect(0, 0, width, height);
-
-        // Dramatic lighting from above
-        const spotlight = ctx.createRadialGradient(
-          width / 2,
-          -height * 0.2,
-          0,
-          width / 2,
-          height * 0.5,
-          height
-        );
-        spotlight.addColorStop(0, `rgba(255, 255, 255, ${0.15 * settings.intensity})`);
-        spotlight.addColorStop(0.5, `rgba(128, 128, 128, ${0.05 * settings.intensity})`);
-        spotlight.addColorStop(1, 'transparent');
-        ctx.fillStyle = spotlight;
-        ctx.fillRect(0, 0, width, height);
-
-        // Film grain
-        for (let i = 0; i < 500; i++) {
-          const x = Math.random() * width;
-          const y = Math.random() * height;
-          const brightness = Math.random() > 0.5 ? 255 : 0;
-          ctx.fillStyle = `rgba(${brightness}, ${brightness}, ${brightness}, ${0.05 * settings.intensity})`;
-          ctx.fillRect(x, y, 1, 1);
-        }
-
-        // Deep vignette
-        const vignette = ctx.createRadialGradient(
-          width / 2,
-          height / 2,
-          Math.min(width, height) * 0.2,
-          width / 2,
-          height / 2,
-          Math.max(width, height) * 0.7
-        );
-        vignette.addColorStop(0, 'transparent');
-        vignette.addColorStop(0.5, 'rgba(0, 0, 0, 0.3)');
-        vignette.addColorStop(1, 'rgba(0, 0, 0, 0.8)');
-        ctx.fillStyle = vignette;
-        ctx.fillRect(0, 0, width, height);
-
-        // Occasional flicker
-        if (Math.random() < 0.02 * settings.intensity) {
-          ctx.fillStyle = `rgba(255, 255, 255, ${0.1 + Math.random() * 0.1})`;
+          const overlayOpacity = effectiveStyle === VisualStyle.CINEMATIC_BACKDROP ? 0.3 : 0.5;
+          ctx.fillStyle = `rgba(0,0,0,${overlayOpacity})`;
           ctx.fillRect(0, 0, width, height);
         }
-      } else if (effectiveStyle === VisualStyle.FRACTAL_ZOOM) {
-        // Fractal Zoom Style
-        // Simplified fractal-like pattern with zoom animation
-        const zoomSpeed = currentTime * 0.3;
-        const zoom = 1 + (zoomSpeed % 1) * 2;
-        const colorCycles = 5;
+      }
 
-        ctx.fillStyle = '#000';
-        ctx.fillRect(0, 0, width, height);
+      // Skip all visual style effects in lyrics-only mode
+      if (!settings.lyricsOnlyMode) {
+        if (effectiveStyle === VisualStyle.NEON_PULSE) {
+          // Update particle physics
+          particlesRef.current.forEach((p) => {
+            p.update(
+              motionFreqValue,
+              pulseFreqValue,
+              width,
+              height,
+              settings.particleSpeed,
+              settings.intensity,
+              settings.speedX,
+              settings.speedY,
+              settings.trailsEnabled
+            );
+          });
 
-        // Draw fractal-inspired concentric patterns
-        const centerX = width / 2;
-        const centerY = height / 2;
-        const maxRadius = Math.max(width, height);
+          // Render particles - use WebGL if available, fall back to Canvas 2D
+          if (useWebGLRef.current && webglParticleRendererRef.current && !settings.trailsEnabled) {
+            // WebGL rendering (faster for many particles, but doesn't support trails yet)
+            // Use pre-allocated pool to avoid per-frame allocations
+            const pool = particleDataPoolRef.current;
+            const particles = particlesRef.current;
+            const count = Math.min(particles.length, pool.length);
 
-        for (let ring = 30; ring >= 0; ring--) {
-          const radius = (ring / 30) * maxRadius * zoom;
-          const hue = (ring * colorCycles * 12 + currentTime * 50) % 360;
-          const saturation = 80 + (bassFreq / 255) * 20;
-          const lightness = 30 + (ring / 30) * 30;
+            for (let i = 0; i < count; i++) {
+              const p = particles[i];
+              const data = pool[i];
 
-          ctx.strokeStyle = `hsla(${hue}, ${saturation}%, ${lightness}%, ${0.3 * settings.intensity})`;
-          ctx.lineWidth = 2;
+              // Update pooled object in-place (no allocation)
+              data.x = p.x;
+              data.y = p.y;
+              data.size = p.size;
+              data.opacity = 0.8;
 
-          ctx.beginPath();
-          // Draw spiraling pattern
-          for (let a = 0; a < Math.PI * 8; a += 0.1) {
-            const r = radius * (a / (Math.PI * 8));
-            const x = centerX + Math.cos(a + zoomSpeed) * r;
-            const y = centerY + Math.sin(a + zoomSpeed) * r;
+              // Parse HSL color to RGB
+              const hslMatch = p.color.match(/hsla?\((\d+),\s*(\d+)%,\s*(\d+)%/);
+              if (hslMatch) {
+                const h = parseInt(hslMatch[1]) / 360;
+                const s = parseInt(hslMatch[2]) / 100;
+                const l = parseInt(hslMatch[3]) / 100;
+                const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+                const pp = 2 * l - q;
+                data.r = hue2rgb(pp, q, h + 1 / 3);
+                data.g = hue2rgb(pp, q, h);
+                data.b = hue2rgb(pp, q, h - 1 / 3);
+              } else {
+                data.r = 1;
+                data.g = 1;
+                data.b = 1;
+              }
+            }
 
-            if (a === 0) ctx.moveTo(x, y);
-            else ctx.lineTo(x, y);
+            webglParticleRendererRef.current.updateParticles(pool, count);
+            const particleCanvas = webglParticleRendererRef.current.render();
+            ctx.drawImage(particleCanvas, 0, 0, width, height);
+          } else {
+            // Canvas 2D fallback (supports trails)
+            particlesRef.current.forEach((p) => {
+              p.draw(ctx, settings.trailsEnabled);
+            });
           }
-          ctx.stroke();
-        }
-      } else if (effectiveStyle === VisualStyle.PARTICLE_NEBULA) {
-        // Particle Nebula Style
-        // Dense starfield with nebula gas clouds
-        ctx.fillStyle = '#050510';
-        ctx.fillRect(0, 0, width, height);
 
-        // Draw nebula clouds
-        const cloudCount = 4;
-        const hues = [280, 200, 320, 240];
+          // Draw central orb (always Canvas 2D - single draw call)
+          let orbColor = '#00ffff';
+          if (sentimentColor) orbColor = sentimentColor;
+          else if (effectivePalette === 'sunset') orbColor = '#ffaa00';
+          else if (effectivePalette === 'fire') orbColor = '#ff4400';
+          else if (effectivePalette === 'matrix') orbColor = '#00ff00';
 
-        for (let c = 0; c < cloudCount; c++) {
-          const cloudX = width * (0.2 + c * 0.2) + Math.sin(currentTime * 0.2 + c) * 50;
-          const cloudY = height * (0.3 + Math.sin(c) * 0.2) + Math.cos(currentTime * 0.15 + c) * 30;
-          const cloudRadius = 200 + (bassFreq / 255) * 100;
-
-          const gradient = ctx.createRadialGradient(cloudX, cloudY, 0, cloudX, cloudY, cloudRadius);
-          gradient.addColorStop(0, `hsla(${hues[c]}, 70%, 40%, ${0.2 * settings.intensity})`);
-          gradient.addColorStop(0.5, `hsla(${hues[c]}, 60%, 30%, ${0.1 * settings.intensity})`);
-          gradient.addColorStop(1, 'transparent');
-
-          ctx.fillStyle = gradient;
+          ctx.shadowBlur = (20 + colorFreqValue * 0.5) * settings.intensity;
+          ctx.shadowColor = orbColor;
           ctx.beginPath();
-          ctx.arc(cloudX, cloudY, cloudRadius, 0, Math.PI * 2);
-          ctx.fill();
-        }
+          ctx.arc(width / 2, height / 2, (Math.min(width, height) / 4) * pulse, 0, 2 * Math.PI);
+          ctx.strokeStyle = orbColor;
+          ctx.lineWidth = 4;
+          ctx.stroke();
+          ctx.shadowBlur = 0;
+        } else if (effectiveStyle === VisualStyle.LIQUID_DREAM) {
+          // Optimized LIQUID_DREAM: Use LOD and batch drawing
+          ctx.lineWidth = 2 * settings.intensity;
 
-        // Draw stars with parallax (3 layers)
-        for (let layer = 0; layer < 3; layer++) {
-          const starCount = 100 + layer * 50;
-          const layerSpeed = (layer + 1) * 0.1;
-          const drift = currentTime * layerSpeed * 20;
+          // LOD: Use larger step size for wider canvases to reduce draw calls
+          const step = width > 1920 ? 20 : width > 1280 ? 15 : 10;
+          const waveMotion = motionFreqValue / 255;
 
-          for (let s = 0; s < starCount; s++) {
-            const seed = s * 1.618 + layer * 100;
-            const baseX = ((seed * 123.456) % 1) * width;
-            const baseY = ((seed * 789.012) % 1) * height;
-            const x = (baseX - drift + width * 10) % width;
-            const y = baseY;
-            const size = (3 - layer) * 0.5 + Math.sin(currentTime * 3 + s) * 0.3;
-            const brightness = 0.3 + (2 - layer) * 0.2 + Math.sin(currentTime * 2 + s * 0.1) * 0.2;
+          // Pre-compute time-based values once per frame
+          const timeOffset = time * 10 + 200;
+          const timeWaveOffset = time * (1 + waveMotion);
 
-            ctx.fillStyle = `rgba(255, 255, 255, ${brightness * settings.intensity})`;
+          for (let i = 0; i < 5; i++) {
             ctx.beginPath();
-            ctx.arc(x, y, size, 0, Math.PI * 2);
+            ctx.strokeStyle = sentimentColor
+              ? sentimentColor
+              : `hsla(${i * 40 + timeOffset}, 70%, 60%, 0.5)`;
+
+            // Pre-compute wave-specific offsets
+            const wavePhase = time + i;
+            const amplitude1 = 50 * pulse;
+            const amplitude2 = 20;
+
+            // First point - use moveTo
+            const y0 =
+              height / 2 +
+              Math.sin(wavePhase) * amplitude1 +
+              Math.sin(-timeWaveOffset) * amplitude2;
+            ctx.moveTo(0, y0);
+
+            // Batch all line segments
+            for (let x = step; x <= width; x += step) {
+              const y =
+                height / 2 +
+                Math.sin(x * 0.01 + wavePhase) * amplitude1 +
+                Math.sin(x * 0.02 - timeWaveOffset) * amplitude2;
+              ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+          }
+        } else if (effectiveStyle === VisualStyle.GLITCH_CYBER) {
+          ctx.fillStyle = `rgba(0, 0, 0, ${0.15 * settings.intensity})`;
+          for (let y = 0; y < height; y += 4) ctx.fillRect(0, y, width, 2);
+          if (
+            Math.random() < settings.glitchFrequency * 0.4 ||
+            motionFreqValue > 200 - settings.glitchFrequency * 100
+          ) {
+            const numGlitches = Math.floor(Math.random() * 5 * settings.intensity) + 1;
+            for (let k = 0; k < numGlitches; k++) {
+              const hSlice = Math.random() * height;
+              const hSize = Math.random() * 50 * settings.intensity;
+              ctx.fillStyle = sentimentColor || 'rgba(0, 255, 0, 0.5)';
+              ctx.fillRect(0, hSlice, width, hSize);
+            }
+          }
+        } else if (effectiveStyle === VisualStyle.KALEIDOSCOPE) {
+          ctx.save();
+          ctx.translate(width / 2, height / 2);
+          ctx.rotate(time * 0.1);
+
+          const segments = 8;
+          const angleStep = (Math.PI * 2) / segments;
+
+          for (let i = 0; i < segments; i++) {
+            ctx.save();
+            ctx.rotate(i * angleStep);
+
+            const drawSlice = () => {
+              ctx.beginPath();
+              const dataLen = 20;
+              let prevX = 0;
+              let prevY = 0;
+              for (let j = 0; j < dataLen; j++) {
+                const index = j * 3;
+                const val = dataArrayRef.current ? dataArrayRef.current[index] : 0;
+                const intensityMult = pulseFreqValue / 255 + 0.5;
+                const normalized = (val / 255) * settings.intensity * intensityMult;
+                const dist = j * (Math.min(width, height) / 2 / dataLen) * 0.8 + 20;
+                const x = dist;
+                const y = normalized * 40 * Math.sin(time * 2 + j);
+
+                let strokeStyle = '';
+                let fillStyle = '';
+
+                if (sentimentColor) {
+                  strokeStyle = sentimentColor;
+                  fillStyle = sentimentColor;
+                } else {
+                  let hue = (time * 10 + j * 10) % 360;
+                  if (effectivePalette === 'neon') hue = 280 + j * 5 + val / 2;
+                  else if (effectivePalette === 'sunset') hue = 10 + j * 5;
+                  else if (effectivePalette === 'ocean') hue = 180 + j * 5;
+                  else if (effectivePalette === 'matrix') hue = 100 + val;
+                  else if (effectivePalette === 'fire') hue = j * 3;
+                  strokeStyle = `hsla(${hue}, 80%, 60%, 0.6)`;
+                  fillStyle = `hsla(${hue}, 80%, 60%, 0.4)`;
+                }
+
+                ctx.strokeStyle = strokeStyle;
+                ctx.fillStyle = fillStyle;
+                ctx.lineWidth = 2;
+                if (j > 0) {
+                  ctx.beginPath();
+                  ctx.moveTo(prevX, prevY);
+                  ctx.lineTo(x, y);
+                  ctx.stroke();
+                }
+                ctx.beginPath();
+                ctx.arc(x, y, 2 + normalized * 10, 0, Math.PI * 2);
+                ctx.fill();
+                prevX = x;
+                prevY = y;
+              }
+            };
+
+            drawSlice();
+            ctx.scale(1, -1);
+            drawSlice();
+            ctx.restore();
+          }
+          ctx.restore();
+        } else if (effectiveStyle === VisualStyle.CHROMATIC_WAVE) {
+          // Chromatic Wave Style
+          // Fluid, overlapping waves shifting colors
+          const layers = 5;
+
+          for (let i = 0; i < layers; i++) {
+            ctx.beginPath();
+
+            // Determine color based on palette and frequency
+            let hue = 0;
+            const freqMod = (colorFreqValue / 255) * 50; // Modulate hue by treble
+
+            if (effectivePalette === 'neon') hue = 280 + i * 15 + freqMod;
+            else if (effectivePalette === 'sunset')
+              hue = 340 + i * 20 + freqMod; // Pink/Red/Orange
+            else if (effectivePalette === 'ocean') hue = 190 + i * 10 + freqMod;
+            else if (effectivePalette === 'matrix') hue = 100 + i * 5 + freqMod;
+            else if (effectivePalette === 'fire') hue = 0 + i * 10 + freqMod;
+            else hue = (time * 20 + i * 30) % 360;
+
+            const saturation = 70 + (pulseFreqValue / 255) * 30;
+            const lightness = 50 + i * 5;
+            const alpha = (0.4 / (i + 1)) * settings.intensity;
+
+            ctx.fillStyle =
+              sentimentColor && i === 0
+                ? sentimentColor
+                : `hsla(${hue}, ${saturation}%, ${lightness}%, ${alpha})`;
+
+            ctx.strokeStyle = `hsla(${hue}, ${saturation}%, ${lightness + 20}%, ${alpha + 0.2})`;
+            ctx.lineWidth = 2;
+
+            // Wave parameters
+            const waveSpeed = time * (0.5 + i * 0.1) * (motionFreqValue / 255 + 0.5);
+            const amplitude = (height / 6) * settings.intensity * (bassFreq / 100 + 0.5);
+            const frequency = 0.005 + i * 0.002;
+            const verticalShift = height / 2 + i * 20 - layers * 10;
+
+            ctx.moveTo(0, height);
+
+            // Draw sine wave
+            for (let x = 0; x <= width; x += 15) {
+              // Main wave component
+              const y1 = Math.sin(x * frequency + waveSpeed) * amplitude;
+              // Secondary component for complexity
+              const y2 = Math.cos(x * frequency * 2.3 - waveSpeed * 0.8) * (amplitude * 0.5);
+
+              // Add some noise from audio data directly
+              const audioIdx = Math.floor((x / width) * 50) + i * 10;
+              const audioNoise =
+                (dataArrayRef.current?.[audioIdx % 128] || 0) * 0.2 * settings.intensity;
+
+              ctx.lineTo(x, verticalShift + y1 + y2 - audioNoise);
+            }
+
+            ctx.lineTo(width, height);
+            ctx.lineTo(0, height);
+            ctx.fill();
+            ctx.stroke();
+          }
+        } else if (effectiveStyle === VisualStyle.AURORA_BOREALIS) {
+          // Aurora Borealis Style
+          // Flowing vertical curtains of light that shift and shimmer
+          const curtainCount = 5;
+          const waveOffset = currentTime * 0.3;
+
+          for (let c = 0; c < curtainCount; c++) {
+            const hue = (120 + c * 40 + Math.sin(currentTime * 0.2 + c) * 30) % 360;
+            const saturation = 70 + (bassFreq / 255) * 20;
+            const lightness = 40 + (trebleFreq / 255) * 20;
+
+            ctx.fillStyle = `hsla(${hue}, ${saturation}%, ${lightness}%, ${0.15 * settings.intensity})`;
+
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+
+            for (let y = 0; y <= height; y += 10) {
+              const noise1 = Math.sin(y * 0.01 + waveOffset + c * 0.5) * 100;
+              const noise2 = Math.cos(y * 0.02 - waveOffset * 0.7 + c) * 50;
+              const audioOffset = (midFreq / 255) * 30 * Math.sin(y * 0.015 + c);
+              const x = width * (0.15 + c * 0.15) + noise1 + noise2 + audioOffset;
+
+              ctx.lineTo(x, y);
+            }
+
+            ctx.lineTo(width * (0.25 + c * 0.15), height);
+            ctx.lineTo(0, height);
+            ctx.closePath();
             ctx.fill();
           }
-        }
-      } else if (effectiveStyle === VisualStyle.GEOMETRIC_MORPH) {
-        // Geometric Morph Style
-        // Abstract geometric shapes that morph and tessellate
-        const gridSize = 8;
-        const cellWidth = width / gridSize;
-        const cellHeight = height / gridSize;
-        const morphPhase = currentTime * 0.5;
+        } else if (effectiveStyle === VisualStyle.WATER_RIPPLE) {
+          // Water Ripple Style
+          // Concentric ripples emanating from center
+          const rippleCount = 8;
+          const rippleSpeed = currentTime * 2;
+          const bassPulse = 1 + (bassFreq / 255) * 0.5;
 
-        ctx.fillStyle = '#0a0a15';
-        ctx.fillRect(0, 0, width, height);
+          ctx.fillStyle = '#001830';
+          ctx.fillRect(0, 0, width, height);
 
-        for (let row = 0; row < gridSize; row++) {
-          for (let col = 0; col < gridSize; col++) {
-            const x = col * cellWidth + cellWidth / 2;
-            const y = row * cellHeight + cellHeight / 2;
-            const distFromCenter = Math.sqrt(
-              Math.pow(x - width / 2, 2) + Math.pow(y - height / 2, 2)
+          for (let r = rippleCount; r >= 0; r--) {
+            const baseRadius = (r / rippleCount) * Math.max(width, height) * 0.8;
+            const animatedRadius =
+              baseRadius + ((rippleSpeed * 50) % (Math.max(width, height) * 0.8));
+            const alpha = 0.15 * (1 - r / rippleCount) * settings.intensity;
+
+            ctx.strokeStyle = `hsla(${200 + r * 10}, 80%, ${50 + (trebleFreq / 255) * 20}%, ${alpha})`;
+            ctx.lineWidth = 2 + (bassFreq / 255) * 3;
+
+            ctx.beginPath();
+            ctx.arc(width / 2, height / 2, animatedRadius * bassPulse, 0, Math.PI * 2);
+            ctx.stroke();
+          }
+
+          // Caustic light patterns
+          for (let i = 0; i < 15; i++) {
+            const angle = (i / 15) * Math.PI * 2 + currentTime * 0.5;
+            const dist = 100 + Math.sin(currentTime + i) * 50;
+            const x = width / 2 + Math.cos(angle) * dist;
+            const y = height / 2 + Math.sin(angle) * dist * 0.5;
+
+            const gradient = ctx.createRadialGradient(x, y, 0, x, y, 30);
+            gradient.addColorStop(0, `rgba(100, 200, 255, ${0.1 * settings.intensity})`);
+            gradient.addColorStop(1, 'transparent');
+
+            ctx.fillStyle = gradient;
+            ctx.beginPath();
+            ctx.arc(x, y, 30, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        } else if (effectiveStyle === VisualStyle.FIRE_EMBERS) {
+          // Fire Embers Style
+          // Rising ember particles with heat distortion
+          const emberCount = 50;
+          const flameHeight = height * 0.6;
+
+          // Dark gradient background
+          const bgGrad = ctx.createLinearGradient(0, 0, 0, height);
+          bgGrad.addColorStop(0, '#1a0a00');
+          bgGrad.addColorStop(0.5, '#2a0a00');
+          bgGrad.addColorStop(1, '#4a1a00');
+          ctx.fillStyle = bgGrad;
+          ctx.fillRect(0, 0, width, height);
+
+          // Draw flames at bottom
+          for (let f = 0; f < 20; f++) {
+            const flameX = (f / 20) * width;
+            const _flameY = height;
+            const waveOffset = Math.sin(currentTime * 3 + f) * 20;
+            const flameH = flameHeight * (0.5 + (bassFreq / 255) * 0.5 + Math.random() * 0.3);
+
+            const flameGrad = ctx.createLinearGradient(flameX, height, flameX, height - flameH);
+            flameGrad.addColorStop(0, `rgba(255, 100, 0, ${0.9 * settings.intensity})`);
+            flameGrad.addColorStop(0.3, `rgba(255, 50, 0, ${0.6 * settings.intensity})`);
+            flameGrad.addColorStop(0.6, `rgba(200, 0, 0, ${0.3 * settings.intensity})`);
+            flameGrad.addColorStop(1, 'transparent');
+
+            ctx.fillStyle = flameGrad;
+            ctx.beginPath();
+            ctx.moveTo(flameX - 30, height);
+            ctx.quadraticCurveTo(
+              flameX + waveOffset,
+              height - flameH * 0.6,
+              flameX,
+              height - flameH
             );
-            const normalizedDist = distFromCenter / (Math.max(width, height) / 2);
+            ctx.quadraticCurveTo(flameX - waveOffset, height - flameH * 0.6, flameX + 30, height);
+            ctx.fill();
+          }
 
-            const hue = ((row + col) * 30 + currentTime * 20) % 360;
-            const pulse = 0.5 + (bassFreq / 255) * 0.5;
-            const size = (cellWidth * 0.4 + Math.sin(morphPhase + row + col) * 10) * pulse;
-            const rotation = morphPhase + normalizedDist * 2;
+          // Draw embers
+          for (let e = 0; e < emberCount; e++) {
+            const seed = e * 1.618;
+            const emberX = ((seed * 234.5) % 1) * width;
+            const emberY = height - ((currentTime * 100 + seed * 200) % height);
+            const emberSize = 2 + Math.sin(currentTime + e) * 1.5;
+            const hue = 30 - (emberY / height) * 30;
 
-            ctx.save();
-            ctx.translate(x, y);
-            ctx.rotate(rotation);
+            ctx.fillStyle = `hsla(${hue}, 100%, ${50 + (emberY / height) * 20}%, ${0.8 * settings.intensity})`;
+            ctx.beginPath();
+            ctx.arc(emberX + Math.sin(currentTime * 2 + e) * 10, emberY, emberSize, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        } else if (effectiveStyle === VisualStyle.VHS_RETRO) {
+          // VHS Retro Style
+          // 80s VHS aesthetic with tracking lines and chromatic aberration
+          ctx.fillStyle = '#000';
+          ctx.fillRect(0, 0, width, height);
 
-            // Morph between shapes based on time
-            const shapePhase = (morphPhase + row * 0.1 + col * 0.1) % 3;
-            ctx.fillStyle = `hsla(${hue}, 70%, 50%, ${0.4 * settings.intensity})`;
-            ctx.strokeStyle = `hsla(${hue}, 80%, 60%, ${0.6 * settings.intensity})`;
+          // Chromatic aberration offset
+          const _aberrationOffset = 3 + (bassFreq / 255) * 5;
+
+          // Scanlines
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.02)';
+          for (let y = 0; y < height; y += 4) {
+            ctx.fillRect(0, y, width, 1);
+          }
+
+          // Tracking distortion bands
+          const trackingNoise = settings.intensity * 0.5;
+          for (let i = 0; i < 3; i++) {
+            const bandY = ((currentTime * 50 + i * 100) % (height + 50)) - 25;
+            const bandHeight = 10 + Math.random() * 20;
+
+            ctx.fillStyle = `rgba(255, 255, 255, ${0.05 * trackingNoise})`;
+            ctx.fillRect(0, bandY, width, bandHeight);
+          }
+
+          // Static noise
+          const staticIntensity = 0.1 + (trebleFreq / 255) * 0.2;
+          for (let i = 0; i < 100 * staticIntensity; i++) {
+            const x = Math.random() * width;
+            const y = Math.random() * height;
+            const size = Math.random() * 3;
+            ctx.fillStyle = `rgba(255, 255, 255, ${Math.random() * 0.5})`;
+            ctx.fillRect(x, y, size, size);
+          }
+
+          // Color bleed effect
+          const gradient = ctx.createLinearGradient(0, 0, width, 0);
+          gradient.addColorStop(0, `rgba(255, 0, 0, ${0.05 * settings.intensity})`);
+          gradient.addColorStop(0.5, 'transparent');
+          gradient.addColorStop(1, `rgba(0, 255, 255, ${0.05 * settings.intensity})`);
+          ctx.fillStyle = gradient;
+          ctx.fillRect(0, 0, width, height);
+        } else if (effectiveStyle === VisualStyle.FILM_NOIR) {
+          // Film Noir Style
+          // Classic black and white with deep vignette and grain
+          ctx.fillStyle = '#0a0a0a';
+          ctx.fillRect(0, 0, width, height);
+
+          // Dramatic lighting from above
+          const spotlight = ctx.createRadialGradient(
+            width / 2,
+            -height * 0.2,
+            0,
+            width / 2,
+            height * 0.5,
+            height
+          );
+          spotlight.addColorStop(0, `rgba(255, 255, 255, ${0.15 * settings.intensity})`);
+          spotlight.addColorStop(0.5, `rgba(128, 128, 128, ${0.05 * settings.intensity})`);
+          spotlight.addColorStop(1, 'transparent');
+          ctx.fillStyle = spotlight;
+          ctx.fillRect(0, 0, width, height);
+
+          // Film grain
+          for (let i = 0; i < 500; i++) {
+            const x = Math.random() * width;
+            const y = Math.random() * height;
+            const brightness = Math.random() > 0.5 ? 255 : 0;
+            ctx.fillStyle = `rgba(${brightness}, ${brightness}, ${brightness}, ${0.05 * settings.intensity})`;
+            ctx.fillRect(x, y, 1, 1);
+          }
+
+          // Deep vignette
+          const vignette = ctx.createRadialGradient(
+            width / 2,
+            height / 2,
+            Math.min(width, height) * 0.2,
+            width / 2,
+            height / 2,
+            Math.max(width, height) * 0.7
+          );
+          vignette.addColorStop(0, 'transparent');
+          vignette.addColorStop(0.5, 'rgba(0, 0, 0, 0.3)');
+          vignette.addColorStop(1, 'rgba(0, 0, 0, 0.8)');
+          ctx.fillStyle = vignette;
+          ctx.fillRect(0, 0, width, height);
+
+          // Occasional flicker
+          if (Math.random() < 0.02 * settings.intensity) {
+            ctx.fillStyle = `rgba(255, 255, 255, ${0.1 + Math.random() * 0.1})`;
+            ctx.fillRect(0, 0, width, height);
+          }
+        } else if (effectiveStyle === VisualStyle.FRACTAL_ZOOM) {
+          // Fractal Zoom Style
+          // Simplified fractal-like pattern with zoom animation
+          const zoomSpeed = currentTime * 0.3;
+          const zoom = 1 + (zoomSpeed % 1) * 2;
+          const colorCycles = 5;
+
+          ctx.fillStyle = '#000';
+          ctx.fillRect(0, 0, width, height);
+
+          // Draw fractal-inspired concentric patterns
+          const centerX = width / 2;
+          const centerY = height / 2;
+          const maxRadius = Math.max(width, height);
+
+          for (let ring = 30; ring >= 0; ring--) {
+            const radius = (ring / 30) * maxRadius * zoom;
+            const hue = (ring * colorCycles * 12 + currentTime * 50) % 360;
+            const saturation = 80 + (bassFreq / 255) * 20;
+            const lightness = 30 + (ring / 30) * 30;
+
+            ctx.strokeStyle = `hsla(${hue}, ${saturation}%, ${lightness}%, ${0.3 * settings.intensity})`;
             ctx.lineWidth = 2;
 
             ctx.beginPath();
-            if (shapePhase < 1) {
-              // Triangle
-              const points = 3;
-              for (let p = 0; p < points; p++) {
-                const angle = (p / points) * Math.PI * 2 - Math.PI / 2;
-                const px = Math.cos(angle) * size;
-                const py = Math.sin(angle) * size;
-                if (p === 0) ctx.moveTo(px, py);
-                else ctx.lineTo(px, py);
-              }
-            } else if (shapePhase < 2) {
-              // Hexagon
-              const points = 6;
-              for (let p = 0; p < points; p++) {
-                const angle = (p / points) * Math.PI * 2;
-                const px = Math.cos(angle) * size;
-                const py = Math.sin(angle) * size;
-                if (p === 0) ctx.moveTo(px, py);
-                else ctx.lineTo(px, py);
-              }
-            } else {
-              // Square
-              ctx.rect(-size, -size, size * 2, size * 2);
-            }
-            ctx.closePath();
-            ctx.fill();
-            ctx.stroke();
+            // Draw spiraling pattern
+            for (let a = 0; a < Math.PI * 8; a += 0.1) {
+              const r = radius * (a / (Math.PI * 8));
+              const x = centerX + Math.cos(a + zoomSpeed) * r;
+              const y = centerY + Math.sin(a + zoomSpeed) * r;
 
-            ctx.restore();
+              if (a === 0) ctx.moveTo(x, y);
+              else ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+          }
+        } else if (effectiveStyle === VisualStyle.PARTICLE_NEBULA) {
+          // Particle Nebula Style
+          // Dense starfield with nebula gas clouds
+          ctx.fillStyle = '#050510';
+          ctx.fillRect(0, 0, width, height);
+
+          // Draw nebula clouds
+          const cloudCount = 4;
+          const hues = [280, 200, 320, 240];
+
+          for (let c = 0; c < cloudCount; c++) {
+            const cloudX = width * (0.2 + c * 0.2) + Math.sin(currentTime * 0.2 + c) * 50;
+            const cloudY =
+              height * (0.3 + Math.sin(c) * 0.2) + Math.cos(currentTime * 0.15 + c) * 30;
+            const cloudRadius = 200 + (bassFreq / 255) * 100;
+
+            const gradient = ctx.createRadialGradient(
+              cloudX,
+              cloudY,
+              0,
+              cloudX,
+              cloudY,
+              cloudRadius
+            );
+            gradient.addColorStop(0, `hsla(${hues[c]}, 70%, 40%, ${0.2 * settings.intensity})`);
+            gradient.addColorStop(0.5, `hsla(${hues[c]}, 60%, 30%, ${0.1 * settings.intensity})`);
+            gradient.addColorStop(1, 'transparent');
+
+            ctx.fillStyle = gradient;
+            ctx.beginPath();
+            ctx.arc(cloudX, cloudY, cloudRadius, 0, Math.PI * 2);
+            ctx.fill();
+          }
+
+          // Draw stars with parallax (3 layers)
+          for (let layer = 0; layer < 3; layer++) {
+            const starCount = 100 + layer * 50;
+            const layerSpeed = (layer + 1) * 0.1;
+            const drift = currentTime * layerSpeed * 20;
+
+            for (let s = 0; s < starCount; s++) {
+              const seed = s * 1.618 + layer * 100;
+              const baseX = ((seed * 123.456) % 1) * width;
+              const baseY = ((seed * 789.012) % 1) * height;
+              const x = (baseX - drift + width * 10) % width;
+              const y = baseY;
+              const size = (3 - layer) * 0.5 + Math.sin(currentTime * 3 + s) * 0.3;
+              const brightness =
+                0.3 + (2 - layer) * 0.2 + Math.sin(currentTime * 2 + s * 0.1) * 0.2;
+
+              ctx.fillStyle = `rgba(255, 255, 255, ${brightness * settings.intensity})`;
+              ctx.beginPath();
+              ctx.arc(x, y, size, 0, Math.PI * 2);
+              ctx.fill();
+            }
+          }
+        } else if (effectiveStyle === VisualStyle.GEOMETRIC_MORPH) {
+          // Geometric Morph Style
+          // Abstract geometric shapes that morph and tessellate
+          const gridSize = 8;
+          const cellWidth = width / gridSize;
+          const cellHeight = height / gridSize;
+          const morphPhase = currentTime * 0.5;
+
+          ctx.fillStyle = '#0a0a15';
+          ctx.fillRect(0, 0, width, height);
+
+          for (let row = 0; row < gridSize; row++) {
+            for (let col = 0; col < gridSize; col++) {
+              const x = col * cellWidth + cellWidth / 2;
+              const y = row * cellHeight + cellHeight / 2;
+              const distFromCenter = Math.sqrt(
+                Math.pow(x - width / 2, 2) + Math.pow(y - height / 2, 2)
+              );
+              const normalizedDist = distFromCenter / (Math.max(width, height) / 2);
+
+              const hue = ((row + col) * 30 + currentTime * 20) % 360;
+              const pulse = 0.5 + (bassFreq / 255) * 0.5;
+              const size = (cellWidth * 0.4 + Math.sin(morphPhase + row + col) * 10) * pulse;
+              const rotation = morphPhase + normalizedDist * 2;
+
+              ctx.save();
+              ctx.translate(x, y);
+              ctx.rotate(rotation);
+
+              // Morph between shapes based on time
+              const shapePhase = (morphPhase + row * 0.1 + col * 0.1) % 3;
+              ctx.fillStyle = `hsla(${hue}, 70%, 50%, ${0.4 * settings.intensity})`;
+              ctx.strokeStyle = `hsla(${hue}, 80%, 60%, ${0.6 * settings.intensity})`;
+              ctx.lineWidth = 2;
+
+              ctx.beginPath();
+              if (shapePhase < 1) {
+                // Triangle
+                const points = 3;
+                for (let p = 0; p < points; p++) {
+                  const angle = (p / points) * Math.PI * 2 - Math.PI / 2;
+                  const px = Math.cos(angle) * size;
+                  const py = Math.sin(angle) * size;
+                  if (p === 0) ctx.moveTo(px, py);
+                  else ctx.lineTo(px, py);
+                }
+              } else if (shapePhase < 2) {
+                // Hexagon
+                const points = 6;
+                for (let p = 0; p < points; p++) {
+                  const angle = (p / points) * Math.PI * 2;
+                  const px = Math.cos(angle) * size;
+                  const py = Math.sin(angle) * size;
+                  if (p === 0) ctx.moveTo(px, py);
+                  else ctx.lineTo(px, py);
+                }
+              } else {
+                // Square
+                ctx.rect(-size, -size, size * 2, size * 2);
+              }
+              ctx.closePath();
+              ctx.fill();
+              ctx.stroke();
+
+              ctx.restore();
+            }
           }
         }
-      }
+      } // End of !lyricsOnlyMode block for visual effects
 
-      // Render background effects from the effects system
-      if (backgroundComposerRef.current && backgroundEffects.length > 0) {
+      // Render background effects from the effects system (skip in lyrics-only mode)
+      if (
+        !settings.lyricsOnlyMode &&
+        backgroundComposerRef.current &&
+        backgroundEffects.length > 0
+      ) {
         const bgContext: EffectContext = {
           ctx,
           width,
@@ -1582,7 +1623,7 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
           ctx.scale(textScale, textScale);
         }
 
-        const fontSize = height / 14;
+        const fontSize = (height / 14) * (settings.fontSizeScale || 1.0);
         ctx.font = `900 ${fontSize}px "${settings.fontFamily}"`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';

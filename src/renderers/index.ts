@@ -13,6 +13,16 @@ export {
 } from './WebGLEffectsRenderer';
 
 /**
+ * Particle System
+ */
+export { Particle, type ParticlePosition } from './Particle';
+
+/**
+ * Visual Style Renderers
+ */
+export * from './visualStyles';
+
+/**
  * Check if WebGL is supported in the current environment
  */
 export function supportsWebGL(): boolean {

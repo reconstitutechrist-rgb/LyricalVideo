@@ -210,6 +210,8 @@ const App = () => {
       cameraShakeIntensity: 1.5,
       shakeIntensity: 1.5, // UI-friendly alias
       reactivityIntensity: 1.0, // Overall audio reactivity
+      lyricsOnlyMode: false, // Disable background effects, show only lyrics
+      fontSizeScale: 1.0, // Scale factor for lyrics font size
       frequencyMapping: {
         pulse: 'bass',
         motion: 'mid',

@@ -61,6 +61,8 @@ export interface LyricalFlowUIProps {
   currentStyle: VisualStyle;
   animationSpeed: number;
   bassShakeEnabled: boolean;
+  lyricsOnlyMode: boolean;
+  fontSizeScale: number;
 
   // Visual Settings - Advanced
   aspectRatio: AspectRatio;
@@ -110,6 +112,8 @@ export interface LyricalFlowUIProps {
   onStyleChange: (style: VisualStyle) => void;
   onAnimationSpeedChange: (speed: number) => void;
   onBassShakeToggle: () => void;
+  onLyricsOnlyModeToggle: () => void;
+  onFontSizeScaleChange: (scale: number) => void;
   onChatToggle: () => void;
   onChatInputChange: (value: string) => void;
   onChatSubmit: () => void;
@@ -579,6 +583,8 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
   currentStyle,
   animationSpeed,
   bassShakeEnabled,
+  lyricsOnlyMode,
+  fontSizeScale,
   // Visual Settings - Advanced
   aspectRatio,
   colorPalette,
@@ -613,6 +619,8 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
   onStyleChange,
   onAnimationSpeedChange,
   onBassShakeToggle,
+  onLyricsOnlyModeToggle,
+  onFontSizeScaleChange,
   onChatToggle,
   onChatInputChange,
   onChatSubmit,
@@ -1325,6 +1333,73 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
                 onToggle={onBassShakeToggle}
               />
             </div>
+
+            {/* Lyrics Only Mode */}
+            <div className="p-2.5 rounded-xl glass-card">
+              <ToggleSwitch
+                id="lyrics-only-mode"
+                label="Lyrics Only"
+                enabled={lyricsOnlyMode}
+                onToggle={onLyricsOnlyModeToggle}
+              />
+              <p className="text-[8px] text-slate-500 mt-1">
+                Disable background effects, show only lyrics
+              </p>
+            </div>
+
+            {/* Lyrics Only Mode Settings - shown when mode is enabled */}
+            {lyricsOnlyMode && (
+              <div className="space-y-2 p-2.5 rounded-xl glass-card border border-cyan-500/30">
+                <p className="text-[9px] text-cyan-400 font-medium">Lyrics Settings</p>
+
+                {/* Font Size Scale */}
+                <div>
+                  <div className="flex justify-between text-[9px] mb-1">
+                    <label htmlFor="font-size-scale" className="text-slate-400">
+                      Font Size
+                    </label>
+                    <span className="text-cyan-400 font-mono">{fontSizeScale.toFixed(1)}x</span>
+                  </div>
+                  <input
+                    id="font-size-scale"
+                    data-control-id="font-size-scale"
+                    type="range"
+                    min="0.5"
+                    max="2"
+                    step="0.1"
+                    value={fontSizeScale}
+                    onChange={(e) => onFontSizeScaleChange(parseFloat(e.target.value))}
+                    className="w-full cyan-range"
+                  />
+                </div>
+
+                {/* Text Animation */}
+                <div>
+                  <label
+                    htmlFor="text-animation-lyrics"
+                    className="text-[9px] text-slate-400 block mb-1"
+                  >
+                    Text Animation
+                  </label>
+                  <select
+                    id="text-animation-lyrics"
+                    data-control-id="text-animation"
+                    value={textAnimation}
+                    onChange={(e) => onTextAnimationChange(e.target.value as TextAnimationStyle)}
+                    className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-2 py-1.5 text-[10px] text-slate-200 focus:outline-none focus:border-cyan-500/50"
+                  >
+                    <option value="NONE">None</option>
+                    <option value="TYPEWRITER">Typewriter</option>
+                    <option value="KINETIC">Kinetic</option>
+                    <option value="BOUNCE">Bounce</option>
+                    <option value="GLITCH">Glitch</option>
+                  </select>
+                </div>
+
+                {/* Font Family */}
+                <FontUploader currentFont={fontFamily} onFontChange={onFontFamilyChange} />
+              </div>
+            )}
 
             {/* Background Generation */}
             <div className="flex gap-1.5 mt-2">

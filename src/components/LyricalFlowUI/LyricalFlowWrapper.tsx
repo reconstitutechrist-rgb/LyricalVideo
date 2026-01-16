@@ -165,6 +165,26 @@ export const LyricalFlowWrapper: React.FC<LyricalFlowWrapperProps> = ({
     }));
   }, [setState]);
 
+  const handleLyricsOnlyModeToggle = useCallback(() => {
+    setState((prev) => ({
+      ...prev,
+      visualSettings: {
+        ...prev.visualSettings,
+        lyricsOnlyMode: !prev.visualSettings.lyricsOnlyMode,
+      },
+    }));
+  }, [setState]);
+
+  const handleFontSizeScaleChange = useCallback(
+    (scale: number) => {
+      setState((prev) => ({
+        ...prev,
+        visualSettings: { ...prev.visualSettings, fontSizeScale: scale },
+      }));
+    },
+    [setState]
+  );
+
   const handleChatToggle = useCallback(() => {
     setChatOpen(!chatOpen);
   }, [chatOpen, setChatOpen]);
@@ -757,6 +777,8 @@ export const LyricalFlowWrapper: React.FC<LyricalFlowWrapperProps> = ({
       currentStyle={state.currentStyle}
       animationSpeed={animationSpeed}
       bassShakeEnabled={state.visualSettings.cameraShake}
+      lyricsOnlyMode={state.visualSettings.lyricsOnlyMode}
+      fontSizeScale={state.visualSettings.fontSizeScale}
       // Visual Settings - Advanced
       aspectRatio={state.aspectRatio}
       colorPalette={state.visualSettings.colorPalette}
@@ -791,6 +813,8 @@ export const LyricalFlowWrapper: React.FC<LyricalFlowWrapperProps> = ({
       onStyleChange={handleStyleChange}
       onAnimationSpeedChange={handleAnimationSpeedChange}
       onBassShakeToggle={handleBassShakeToggle}
+      onLyricsOnlyModeToggle={handleLyricsOnlyModeToggle}
+      onFontSizeScaleChange={handleFontSizeScaleChange}
       onChatToggle={handleChatToggle}
       onChatInputChange={setChatInput}
       onChatSubmit={onChatSubmit}

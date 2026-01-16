@@ -7,6 +7,9 @@ import {
   clamp,
 } from '../../../services/audioAnalysisService';
 
+// Minimum touch target size (44px recommended by Apple/Google)
+const TOUCH_TARGET_SIZE = 44;
+
 export const PlayheadLayer: React.FC<PlayheadLayerProps> = ({
   currentTime,
   duration,
@@ -22,25 +25,40 @@ export const PlayheadLayer: React.FC<PlayheadLayerProps> = ({
 
   const playheadX = timeToPixel(currentTime, duration, width, zoom, scrollOffset);
 
-  const handleMouseDown = useCallback(
-    (e: React.MouseEvent) => {
+  // Unified position extraction for mouse and touch events
+  const getClientX = useCallback(
+    (e: MouseEvent | TouchEvent | React.MouseEvent | React.TouchEvent): number => {
+      if ('touches' in e && e.touches.length > 0) {
+        return e.touches[0].clientX;
+      } else if ('changedTouches' in e && e.changedTouches.length > 0) {
+        return e.changedTouches[0].clientX;
+      } else if ('clientX' in e) {
+        return e.clientX;
+      }
+      return 0;
+    },
+    []
+  );
+
+  const handleDragStart = useCallback(
+    (e: React.MouseEvent | React.TouchEvent) => {
       e.preventDefault();
       setIsDragging(true);
       const rect = e.currentTarget.getBoundingClientRect();
-      const x = e.clientX - rect.left;
+      const x = getClientX(e) - rect.left;
       const time = pixelToTime(x, duration, width, zoom, scrollOffset);
       onSeek(clamp(time, 0, duration));
     },
-    [duration, width, zoom, scrollOffset, onSeek]
+    [duration, width, zoom, scrollOffset, onSeek, getClientX]
   );
 
-  const handleMouseMove = useCallback(
-    (e: MouseEvent) => {
+  const handleDragMove = useCallback(
+    (e: MouseEvent | TouchEvent) => {
       const container = document.querySelector('.playhead-layer');
       if (!container) return;
 
       const rect = container.getBoundingClientRect();
-      const x = e.clientX - rect.left;
+      const x = getClientX(e) - rect.left;
       const time = pixelToTime(x, duration, width, zoom, scrollOffset);
 
       if (isDragging) {
@@ -49,23 +67,32 @@ export const PlayheadLayer: React.FC<PlayheadLayerProps> = ({
 
       setHoverTime(clamp(time, 0, duration));
     },
-    [isDragging, duration, width, zoom, scrollOffset, onSeek]
+    [isDragging, duration, width, zoom, scrollOffset, onSeek, getClientX]
   );
 
-  const handleMouseUp = useCallback(() => {
+  const handleDragEnd = useCallback(() => {
     setIsDragging(false);
   }, []);
 
   useEffect(() => {
     if (isDragging) {
-      window.addEventListener('mousemove', handleMouseMove);
-      window.addEventListener('mouseup', handleMouseUp);
+      // Mouse events
+      window.addEventListener('mousemove', handleDragMove);
+      window.addEventListener('mouseup', handleDragEnd);
+      // Touch events (passive: false to allow preventDefault in drag)
+      window.addEventListener('touchmove', handleDragMove, { passive: false });
+      window.addEventListener('touchend', handleDragEnd);
+      window.addEventListener('touchcancel', handleDragEnd);
+
       return () => {
-        window.removeEventListener('mousemove', handleMouseMove);
-        window.removeEventListener('mouseup', handleMouseUp);
+        window.removeEventListener('mousemove', handleDragMove);
+        window.removeEventListener('mouseup', handleDragEnd);
+        window.removeEventListener('touchmove', handleDragMove);
+        window.removeEventListener('touchend', handleDragEnd);
+        window.removeEventListener('touchcancel', handleDragEnd);
       };
     }
-  }, [isDragging, handleMouseMove, handleMouseUp]);
+  }, [isDragging, handleDragMove, handleDragEnd]);
 
   const handleContainerMouseMove = (e: React.MouseEvent) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -76,8 +103,9 @@ export const PlayheadLayer: React.FC<PlayheadLayerProps> = ({
 
   return (
     <div
-      className="playhead-layer absolute inset-0 cursor-crosshair"
-      onMouseDown={handleMouseDown}
+      className="playhead-layer absolute inset-0 cursor-crosshair touch-none"
+      onMouseDown={handleDragStart}
+      onTouchStart={handleDragStart}
       onMouseMove={handleContainerMouseMove}
       onMouseEnter={() => setShowTooltip(true)}
       onMouseLeave={() => {
@@ -86,20 +114,30 @@ export const PlayheadLayer: React.FC<PlayheadLayerProps> = ({
       }}
       style={{ width: `${width}px`, height: `${height}px` }}
     >
-      {/* Playhead line */}
+      {/* Playhead line with touch-friendly hit area */}
       {playheadX >= 0 && playheadX <= width && (
         <div
-          className="absolute top-0 bottom-0 w-0.5 bg-red-500 pointer-events-none z-20"
-          style={{ left: `${playheadX}px` }}
+          className="absolute top-0 bottom-0 z-20"
+          style={{
+            left: `${playheadX - TOUCH_TARGET_SIZE / 2}px`,
+            width: `${TOUCH_TARGET_SIZE}px`,
+          }}
         >
-          {/* Playhead handle */}
-          <div
-            className="absolute -top-1 left-1/2 -translate-x-1/2 w-3 h-3 bg-red-500 rounded-sm rotate-45 cursor-ew-resize pointer-events-auto"
-            onMouseDown={(e) => {
-              e.stopPropagation();
-              setIsDragging(true);
-            }}
-          />
+          {/* Visual playhead line (centered) */}
+          <div className="absolute top-0 bottom-0 w-0.5 bg-red-500 pointer-events-none left-1/2 -translate-x-1/2">
+            {/* Playhead handle - larger for touch */}
+            <div
+              className="absolute -top-1 left-1/2 -translate-x-1/2 w-4 h-4 tablet:w-3 tablet:h-3 bg-red-500 rounded-sm rotate-45 cursor-ew-resize pointer-events-auto touch-target"
+              onMouseDown={(e) => {
+                e.stopPropagation();
+                setIsDragging(true);
+              }}
+              onTouchStart={(e) => {
+                e.stopPropagation();
+                setIsDragging(true);
+              }}
+            />
+          </div>
         </div>
       )}
 

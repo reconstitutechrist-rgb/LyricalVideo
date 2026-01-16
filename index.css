@@ -2,7 +2,59 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Custom Scrollbar */
+/* ============================================================================
+   Mobile & Touch Utilities
+   ============================================================================ */
+
+/* Safe area padding for notched devices (iPhone X+) */
+.safe-area-pb {
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+.safe-area-pt {
+  padding-top: env(safe-area-inset-top, 0);
+}
+
+.safe-area-inset {
+  padding-top: env(safe-area-inset-top, 0);
+  padding-right: env(safe-area-inset-right, 0);
+  padding-bottom: env(safe-area-inset-bottom, 0);
+  padding-left: env(safe-area-inset-left, 0);
+}
+
+/* Disable touch callout and selection on interactive elements */
+.touch-none-select {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Improve touch responsiveness */
+.touch-manipulation {
+  touch-action: manipulation;
+}
+
+/* Prevent text size adjustment on orientation change */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+/* Mobile viewport height fix (accounts for browser chrome) */
+.h-screen-mobile {
+  height: 100vh;
+  height: 100dvh; /* Dynamic viewport height */
+}
+
+/* Minimum touch target size (44x44px recommended by Apple/Google) */
+.touch-target {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+/* ============================================================================
+   Custom Scrollbar
+   ============================================================================ */
 .custom-scrollbar::-webkit-scrollbar {
   width: 6px;
 }

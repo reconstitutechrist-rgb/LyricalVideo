@@ -242,6 +242,8 @@ export interface VisualSettings {
   cameraShakeIntensity: number; // Scalar for camera shake power
   shakeIntensity: number; // UI-friendly alias for cameraShakeIntensity
   reactivityIntensity: number; // Overall reactivity to audio (0.5 - 3.0)
+  lyricsOnlyMode: boolean; // Disable all background effects, show only lyrics
+  fontSizeScale: number; // Scale factor for lyrics font size (0.5 - 2.0)
   frequencyMapping: {
     pulse: FrequencyBand; // Drives scaling/size
     motion: FrequencyBand; // Drives movement speed/offset

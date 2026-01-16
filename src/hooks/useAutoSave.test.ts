@@ -91,6 +91,8 @@ const createMockVisualSettings = (overrides: Partial<VisualSettings> = {}): Visu
   cameraShakeIntensity: 1.0,
   shakeIntensity: 1.0,
   reactivityIntensity: 1.0,
+  lyricsOnlyMode: false,
+  fontSizeScale: 1.0,
   frequencyMapping: {
     pulse: 'bass',
     motion: 'mid',

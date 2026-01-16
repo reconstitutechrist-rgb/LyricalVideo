@@ -62,6 +62,9 @@ export interface VisualSettingsActions {
   setDetectedGenre: (genre: Genre | null) => void;
   setGenreOverride: (genre: Genre | null) => void;
 
+  // Lyrics Only Mode
+  toggleLyricsOnlyMode: () => void;
+
   // Reset
   reset: () => void;
 }
@@ -96,6 +99,8 @@ const defaultVisualSettings: VisualSettings = {
   cameraShakeIntensity: 1.5,
   shakeIntensity: 1.5,
   reactivityIntensity: 1.0,
+  lyricsOnlyMode: false,
+  fontSizeScale: 1.0,
   frequencyMapping: {
     pulse: 'bass',
     motion: 'mid',
@@ -210,6 +215,18 @@ export const useVisualSettingsStore = create<VisualSettingsStore>()(
         setDetectedGenre: (genre) => set({ detectedGenre: genre }, false, 'setDetectedGenre'),
 
         setGenreOverride: (genre) => set({ genreOverride: genre }, false, 'setGenreOverride'),
+
+        toggleLyricsOnlyMode: () =>
+          set(
+            (state) => ({
+              visualSettings: {
+                ...state.visualSettings,
+                lyricsOnlyMode: !state.visualSettings.lyricsOnlyMode,
+              },
+            }),
+            false,
+            'toggleLyricsOnlyMode'
+          ),
 
         reset: () => set(initialState, false, 'reset'),
       }),

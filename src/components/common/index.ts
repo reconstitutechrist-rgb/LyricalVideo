@@ -8,3 +8,16 @@ export type { ModeGateProps, ModeType } from './ModeGate';
 
 export { ModeToggle } from './ModeToggle';
 export type { ModeToggleProps } from './ModeToggle';
+
+// Loading skeletons
+export {
+  Skeleton,
+  SkeletonText,
+  SkeletonCard,
+  SkeletonChatMessage,
+  SkeletonLyricLine,
+  SkeletonLyricsList,
+  SkeletonWaveform,
+  AIProcessingIndicator,
+  SkeletonCircularProgress,
+} from './LoadingSkeleton';
