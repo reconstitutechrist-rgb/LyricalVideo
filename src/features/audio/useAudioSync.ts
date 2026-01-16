@@ -3,8 +3,10 @@
  * Handles synchronization between legacy state and Zustand audio store
  */
 
-import { useEffect, useMemo, RefObject } from 'react';
+import { useEffect, useMemo, useRef, RefObject } from 'react';
 import { useAudioStore } from '../../stores';
+import { useBeatMapStore } from '../../stores/beatMapStore';
+import { BeatDetector } from '../../../services/beatDetectionService';
 
 interface LegacyAudioState {
   audioFile: File | null;
@@ -62,6 +64,30 @@ export const useAudioSync = ({
       audioStore.setAudioBuffer(legacyState.audioBuffer);
     }
   }, [legacyState.audioFile, legacyState.audioBuffer, audioStore]);
+
+  // Track previous buffer to avoid re-analyzing
+  const lastAnalyzedBufferRef = useRef<AudioBuffer | null>(null);
+  const beatMapStore = useBeatMapStore();
+
+  // Auto-generate beat map when audio buffer is loaded
+  useEffect(() => {
+    const buffer = audioStore.audioBuffer || legacyState.audioBuffer;
+
+    // Skip if no buffer, already analyzing, or same buffer already analyzed
+    if (!buffer || beatMapStore.isAnalyzing || buffer === lastAnalyzedBufferRef.current) {
+      return;
+    }
+
+    // Mark this buffer as being analyzed
+    lastAnalyzedBufferRef.current = buffer;
+
+    // Run beat map analysis in background
+    BeatDetector.analyzeBatch(buffer).catch((error) => {
+      console.warn('Beat map analysis failed:', error);
+      // Reset the ref so user can retry
+      lastAnalyzedBufferRef.current = null;
+    });
+  }, [audioStore.audioBuffer, legacyState.audioBuffer, beatMapStore.isAnalyzing]);
 
   // Sync audio element playback with store
   useEffect(() => {

@@ -256,6 +256,11 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
     const lyricComposerRef = useRef<EffectComposer | null>(null);
     const backgroundComposerRef = useRef<EffectComposer | null>(null);
 
+    // Audio context ref for high-precision timing
+    const audioContextRef = useRef<AudioContext | null>(null);
+    const audioContextStartTimeRef = useRef<number>(0);
+    const audioElementStartTimeRef = useRef<number>(0);
+
     // Beat detection ref
     const beatDetectorRef = useRef<BeatDetector>(new BeatDetector());
     const beatDataRef = useRef<BeatData>({
@@ -290,6 +295,40 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
     const frameCountRef = useRef(0);
 
     useImperativeHandle(ref, () => canvasRef.current!);
+
+    /**
+     * Get high-precision current time using AudioContext
+     * Falls back to audio element time if AudioContext not available
+     */
+    const getPreciseCurrentTime = (): number => {
+      const audioCtx = audioContextRef.current;
+      const audio = audioRef.current;
+
+      if (!audio) return currentTimeProp ?? 0;
+
+      // If AudioContext available and audio is playing, use it for sub-frame precision
+      if (audioCtx && audio.paused === false) {
+        // AudioContext.currentTime is high precision but monotonic
+        // We need to map it to the audio element's timeline
+        const audioCtxTime = audioCtx.currentTime;
+        const elapsed = audioCtxTime - audioContextStartTimeRef.current;
+        const preciseTime = audioElementStartTimeRef.current + elapsed;
+
+        // Sync with audio element periodically to avoid drift
+        const elementTime = audio.currentTime;
+        if (Math.abs(preciseTime - elementTime) > 0.1) {
+          // Re-sync if drift exceeds 100ms
+          audioContextStartTimeRef.current = audioCtxTime;
+          audioElementStartTimeRef.current = elementTime;
+          return elementTime;
+        }
+
+        return preciseTime;
+      }
+
+      // Fall back to audio element time
+      return audio.currentTime;
+    };
 
     const getBaseHeight = (resolution: ExportResolution): number => {
       switch (resolution) {
@@ -382,8 +421,10 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
         };
         audio.addEventListener('timeupdate', handleTimeUpdate);
 
-        const AudioContext = window.AudioContext || window.webkitAudioContext;
-        const audioCtx = new AudioContext();
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        const audioCtx = new AudioContextClass();
+        audioContextRef.current = audioCtx;
+
         const analyser = audioCtx.createAnalyser();
         analyser.fftSize = 512;
 
@@ -397,6 +438,10 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
 
         analyserRef.current = analyser;
         dataArrayRef.current = new Uint8Array(analyser.frequencyBinCount);
+
+        // Capture initial timing relationship for sub-frame interpolation
+        audioContextStartTimeRef.current = audioCtx.currentTime;
+        audioElementStartTimeRef.current = audio.currentTime;
 
         particlesRef.current = Array.from(
           { length: 150 },
@@ -638,7 +683,10 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
 
       frameCountRef.current += 1;
 
-      const targetLine = lyrics.find((l) => currentTime >= l.startTime && currentTime <= l.endTime);
+      // Use high-precision timing for smoother animations
+      const preciseTime = isPlaying ? getPreciseCurrentTime() : currentTime;
+
+      const targetLine = lyrics.find((l) => preciseTime >= l.startTime && preciseTime <= l.endTime);
 
       const effectiveStyle = targetLine?.styleOverride || style;
       const effectivePalette = targetLine?.paletteOverride || settings.palette;
@@ -1428,7 +1476,7 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
           ctx,
           width,
           height,
-          currentTime,
+          currentTime: preciseTime,
           deltaTime: 0.016,
           audioData: {
             bass: bassFreq,
@@ -1478,7 +1526,7 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
         if (line.keyframes && line.keyframes.length > 0) {
           const sortedKfs = [...line.keyframes].sort((a, b) => a.time - b.time);
           const lineDuration = line.endTime - line.startTime;
-          const elapsed = currentTime - line.startTime;
+          const elapsed = preciseTime - line.startTime;
           let progress = 0;
           if (lineDuration > 0) progress = Math.max(0, Math.min(1, elapsed / lineDuration));
 
@@ -1577,7 +1625,7 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
         if (hasLyricEffects) {
           // Calculate progress through the lyric
           const lineDuration = line.endTime - line.startTime;
-          const elapsed = currentTime - line.startTime;
+          const elapsed = preciseTime - line.startTime;
           const lyricProgress =
             lineDuration > 0 ? Math.max(0, Math.min(1, elapsed / lineDuration)) : 0;
 
@@ -1586,7 +1634,7 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
             ctx,
             width,
             height,
-            currentTime,
+            currentTime: preciseTime,
             deltaTime: 0.016, // ~60fps
             audioData: {
               bass: bassFreq,
@@ -1622,7 +1670,7 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
           // Check if we have word-level timing for karaoke mode
           if (line.words && line.words.length > 0) {
             // Karaoke-style word-by-word highlighting
-            renderKaraokeText(ctx, line, currentTime, textColor, glowColor, fontSize);
+            renderKaraokeText(ctx, line, preciseTime, textColor, glowColor, fontSize);
           } else {
             // Simple single-line rendering
             ctx.fillStyle = textColor;

@@ -33,6 +33,12 @@ export interface AudioData {
   // Spectral features
   spectralCentroid: number; // "Brightness" of sound
   spectralFlux: number; // Rate of spectral change (onset indicator)
+
+  // Pre-computed beat look-ahead (from beat map)
+  upcomingBeat?: {
+    timeUntil: number; // Milliseconds until next beat
+    intensity: number; // 0-1 predicted intensity
+  };
 }
 
 /**

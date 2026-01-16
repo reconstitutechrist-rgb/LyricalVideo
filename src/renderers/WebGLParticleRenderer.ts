@@ -50,12 +50,18 @@ export class WebGLParticleRenderer {
     this.camera.position.z = 100;
 
     // WebGL renderer with transparency
+    // Note: antialias disabled for particles as point sprites don't benefit from it
     this.renderer = new THREE.WebGLRenderer({
       canvas: this.canvas,
       alpha: true,
-      antialias: false, // Particles don't need antialiasing
+      antialias: false,
       premultipliedAlpha: false,
+      powerPreference: 'high-performance',
     });
+
+    // Set pixel ratio for high-DPI displays (capped at 2 for performance)
+    const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+    this.renderer.setPixelRatio(pixelRatio);
     this.renderer.setSize(width, height);
     this.renderer.setClearColor(0x000000, 0);
 
@@ -131,8 +137,15 @@ export class WebGLParticleRenderer {
   resize(width: number, height: number): void {
     this.width = width;
     this.height = height;
-    this.canvas.width = width;
-    this.canvas.height = height;
+
+    // Update canvas with pixel ratio consideration
+    const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+    this.canvas.width = width * pixelRatio;
+    this.canvas.height = height * pixelRatio;
+    this.canvas.style.width = `${width}px`;
+    this.canvas.style.height = `${height}px`;
+
+    this.renderer.setPixelRatio(pixelRatio);
     this.renderer.setSize(width, height);
     this.camera.right = width;
     this.camera.bottom = height;

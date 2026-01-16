@@ -21,18 +21,37 @@ export interface CharacterData {
 
 /**
  * Extended lyric effect with character-level utilities
+ * Includes character position caching for performance
  */
 export abstract class CharacterLyricEffect extends BaseLyricEffect {
+  // Cache for character positions to avoid recalculation every frame
+  private characterCache: Map<string, CharacterData[]> = new Map();
+  private static readonly MAX_CACHE_SIZE = 50;
+
   /**
-   * Get character positions for the current text
+   * Generate a cache key from context properties
+   */
+  private getCacheKey(context: LyricEffectContext): string {
+    return `${context.text}:${context.fontSize}:${context.fontFamily}:${context.x}:${context.y}`;
+  }
+
+  /**
+   * Get character positions for the current text (with caching)
    */
   protected getCharacters(context: LyricEffectContext): CharacterData[] {
+    const cacheKey = this.getCacheKey(context);
+
+    // Return cached result if available
+    if (this.characterCache.has(cacheKey)) {
+      return this.characterCache.get(cacheKey)!;
+    }
+
     const { ctx, text, x, y, fontSize, fontFamily } = context;
     const font = `bold ${fontSize}px "${fontFamily}"`;
 
     const positions = getCenteredCharacterPositions(ctx, text, x, y, font);
 
-    return positions.map((pos, index) => ({
+    const characters = positions.map((pos, index) => ({
       char: pos.char,
       index,
       x: pos.x,
@@ -41,6 +60,34 @@ export abstract class CharacterLyricEffect extends BaseLyricEffect {
       originalX: pos.x,
       originalY: pos.y,
     }));
+
+    // Manage cache size - remove oldest entries if too large
+    if (this.characterCache.size >= CharacterLyricEffect.MAX_CACHE_SIZE) {
+      const firstKey = this.characterCache.keys().next().value;
+      if (firstKey) {
+        this.characterCache.delete(firstKey);
+      }
+    }
+
+    // Store in cache
+    this.characterCache.set(cacheKey, characters);
+
+    return characters;
+  }
+
+  /**
+   * Clear the character cache (call when text changes significantly)
+   */
+  protected clearCharacterCache(): void {
+    this.characterCache.clear();
+  }
+
+  /**
+   * Reset effect state including cache
+   */
+  reset(): void {
+    super.reset();
+    this.characterCache.clear();
   }
 
   /**

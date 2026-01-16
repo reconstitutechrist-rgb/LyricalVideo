@@ -3,6 +3,9 @@
  * Real-time beat detection, BPM estimation, and audio feature extraction
  */
 
+import { useBeatMapStore } from '../src/stores/beatMapStore';
+import { analyzeAudioBuffer } from './precomputedBeatService';
+
 export interface BeatData {
   isBeat: boolean;
   beatIntensity: number;
@@ -13,7 +16,38 @@ export interface BeatData {
   energyDelta: number;
   spectralCentroid: number;
   spectralFlux: number;
+  // New: upcoming beat info from pre-computed analysis
+  upcomingBeat?: {
+    timeUntil: number;
+    intensity: number;
+  };
 }
+
+export interface SmoothingConfig {
+  /**
+   * Smoothing factor for energy values (0-1, higher = more smoothing)
+   * @default 0.3
+   */
+  energy: number;
+
+  /**
+   * Smoothing factor for spectral flux (0-1, higher = more smoothing)
+   * @default 0.2
+   */
+  spectralFlux: number;
+
+  /**
+   * Smoothing factor for spectral centroid (0-1, higher = more smoothing)
+   * @default 0.5
+   */
+  spectralCentroid: number;
+}
+
+const DEFAULT_SMOOTHING: SmoothingConfig = {
+  energy: 0.3,
+  spectralFlux: 0.2,
+  spectralCentroid: 0.5,
+};
 
 export class BeatDetector {
   private previousSpectrum: Float32Array | null = null;
@@ -23,6 +57,12 @@ export class BeatDetector {
   private bpmEstimate: number = 120;
   private energyHistory: number[] = [];
   private lastAnalysisTime: number = 0;
+
+  // Smoothing state
+  private smoothingConfig: SmoothingConfig = { ...DEFAULT_SMOOTHING };
+  private smoothedEnergy: number = 0;
+  private smoothedSpectralFlux: number = 0;
+  private smoothedSpectralCentroid: number = 0;
 
   /**
    * Analyze audio frame and detect beats
@@ -74,11 +114,32 @@ export class BeatDetector {
     // 7. Calculate spectral centroid (brightness)
     const spectralCentroid = this.calculateSpectralCentroid(frequencyData);
 
+    // 8. Update smoothed values for visual effects
+    this.smoothedEnergy = this.applySmoothing(
+      energy,
+      this.smoothedEnergy,
+      this.smoothingConfig.energy
+    );
+    this.smoothedSpectralFlux = this.applySmoothing(
+      flux,
+      this.smoothedSpectralFlux,
+      this.smoothingConfig.spectralFlux
+    );
+    this.smoothedSpectralCentroid = this.applySmoothing(
+      spectralCentroid,
+      this.smoothedSpectralCentroid,
+      this.smoothingConfig.spectralCentroid
+    );
+
     // Calculate timeSinceBeat, handling the "no beat yet" case
     const timeSinceBeat =
       this.lastBeatTime >= 0 ? Math.max(0, currentTime - this.lastBeatTime) : Infinity;
 
-    return {
+    // Check for upcoming beat from pre-computed beat map
+    const beatMapStore = useBeatMapStore.getState();
+    const upcomingBeatInfo = beatMapStore.getUpcomingBeat(currentTime, 100);
+
+    const result: BeatData = {
       isBeat,
       beatIntensity,
       timeSinceBeat,
@@ -89,6 +150,16 @@ export class BeatDetector {
       spectralCentroid,
       spectralFlux: flux,
     };
+
+    // Add upcoming beat info if available
+    if (upcomingBeatInfo) {
+      result.upcomingBeat = {
+        timeUntil: upcomingBeatInfo.timeUntil * 1000, // Convert to ms
+        intensity: upcomingBeatInfo.beat.intensity,
+      };
+    }
+
+    return result;
   }
 
   /**
@@ -301,6 +372,11 @@ export class BeatDetector {
     this.energyHistory = [];
     this.bpmEstimate = 120;
     this.lastAnalysisTime = 0;
+
+    // Reset smoothed values
+    this.smoothedEnergy = 0;
+    this.smoothedSpectralFlux = 0;
+    this.smoothedSpectralCentroid = 0;
   }
 
   /**
@@ -308,5 +384,67 @@ export class BeatDetector {
    */
   getBPM(): number {
     return this.bpmEstimate;
+  }
+
+  /**
+   * Configure smoothing parameters
+   */
+  setSmoothing(config: Partial<SmoothingConfig>): void {
+    this.smoothingConfig = { ...this.smoothingConfig, ...config };
+  }
+
+  /**
+   * Get current smoothing configuration
+   */
+  getSmoothing(): SmoothingConfig {
+    return { ...this.smoothingConfig };
+  }
+
+  /**
+   * Apply smoothing to a value using exponential moving average
+   */
+  private applySmoothing(current: number, previous: number, factor: number): number {
+    return previous * factor + current * (1 - factor);
+  }
+
+  /**
+   * Get smoothed audio features (for smoother visual reactivity)
+   * Call after analyze() to get smoothed versions of the features
+   */
+  getSmoothedFeatures(): {
+    energy: number;
+    spectralFlux: number;
+    spectralCentroid: number;
+  } {
+    return {
+      energy: this.smoothedEnergy,
+      spectralFlux: this.smoothedSpectralFlux,
+      spectralCentroid: this.smoothedSpectralCentroid,
+    };
+  }
+
+  /**
+   * Analyze entire audio buffer and generate pre-computed beat map
+   * This enables predictive beat synchronization
+   */
+  static async analyzeBatch(
+    audioBuffer: AudioBuffer,
+    onProgress?: (progress: number) => void
+  ): Promise<void> {
+    await analyzeAudioBuffer(audioBuffer, onProgress);
+  }
+
+  /**
+   * Check if a pre-computed beat map is available
+   */
+  static hasBeatMap(): boolean {
+    return useBeatMapStore.getState().beatMap !== null;
+  }
+
+  /**
+   * Get the pre-computed beat map store for direct access
+   */
+  static getBeatMapStore() {
+    return useBeatMapStore;
   }
 }

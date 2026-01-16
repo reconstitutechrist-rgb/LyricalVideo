@@ -13,6 +13,7 @@ import {
 } from './Effect';
 import { EffectRegistry } from './EffectRegistry';
 import { ParameterValues } from './ParameterTypes';
+import { FrameBudgetManager, EffectPriority } from '../../utils/frameBudget';
 
 /**
  * Active effect with its runtime instance
@@ -29,6 +30,10 @@ export class EffectComposer {
   private backgroundEffects: ActiveEffect<BackgroundEffect>[] = [];
   private lyricEffects: ActiveEffect<LyricEffect>[] = [];
   private lastFrameTime: number = 0;
+
+  // Frame budget management
+  private frameBudget: FrameBudgetManager | null = null;
+  private budgetEnabled: boolean = false;
 
   /**
    * Set the active background effects
@@ -93,6 +98,49 @@ export class EffectComposer {
   }
 
   /**
+   * Enable frame budget management
+   */
+  enableFrameBudget(targetFPS: number = 60): void {
+    this.frameBudget = new FrameBudgetManager({ targetFPS, adaptiveQuality: true });
+    this.budgetEnabled = true;
+  }
+
+  /**
+   * Disable frame budget management
+   */
+  disableFrameBudget(): void {
+    this.budgetEnabled = false;
+  }
+
+  /**
+   * Get current frame budget stats
+   */
+  getFrameBudgetStats() {
+    return this.frameBudget?.getStats() ?? null;
+  }
+
+  /**
+   * Get current quality level from budget manager
+   */
+  getQualityLevel(): number {
+    return this.frameBudget?.getQualityLevel() ?? 1;
+  }
+
+  /**
+   * Begin frame budget timing (call at start of render loop)
+   */
+  beginFrame(): void {
+    this.frameBudget?.begin();
+  }
+
+  /**
+   * End frame budget timing (call at end of render loop)
+   */
+  endFrame(): void {
+    this.frameBudget?.end();
+  }
+
+  /**
    * Render all background effects
    */
   renderBackground(context: EffectContext): void {
@@ -102,7 +150,18 @@ export class EffectComposer {
 
     const ctx = context.ctx;
 
-    for (const active of this.backgroundEffects) {
+    for (let i = 0; i < this.backgroundEffects.length; i++) {
+      const active = this.backgroundEffects[i];
+
+      // Check frame budget if enabled (background effects are normal priority)
+      if (this.budgetEnabled && this.frameBudget) {
+        // First effect is higher priority
+        const priority = i === 0 ? EffectPriority.HIGH : EffectPriority.NORMAL;
+        if (!this.frameBudget.hasTimeFor(priority, 2)) {
+          continue; // Skip this effect to maintain frame rate
+        }
+      }
+
       ctx.save();
       try {
         active.instance.render({
@@ -129,7 +188,20 @@ export class EffectComposer {
     }
 
     // Apply each lyric effect in order
-    for (const active of this.lyricEffects) {
+    // Lyrics are critical priority - they should always render
+    for (let i = 0; i < this.lyricEffects.length; i++) {
+      const active = this.lyricEffects[i];
+
+      // Check frame budget if enabled
+      // First lyric effect is critical (text must show), others are high priority
+      if (this.budgetEnabled && this.frameBudget && i > 0) {
+        if (!this.frameBudget.hasTimeFor(EffectPriority.HIGH, 2)) {
+          // Skip remaining effects to maintain frame rate
+          // First effect (i=0) has already rendered, so no fallback needed
+          break;
+        }
+      }
+
       ctx.save();
       try {
         active.instance.renderLyric(context);

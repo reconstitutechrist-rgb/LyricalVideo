@@ -89,3 +89,38 @@ export type { ChatState, ChatActions, ChatStore } from './chatStore';
 // Toast notifications
 export { useToastStore, toast, selectToastCount, selectHasToasts } from './toastStore';
 export type { Toast, ToastType, ToastState, ToastActions, ToastStore } from './toastStore';
+
+// Beat map state (pre-computed beat detection)
+export {
+  useBeatMapStore,
+  selectHasBeatMap,
+  selectIsAnalyzing,
+  selectAverageBPM,
+  selectBeatCount,
+} from './beatMapStore';
+export type {
+  BeatEvent,
+  BPMSegment,
+  BeatMap,
+  BeatMapState,
+  BeatMapActions,
+  BeatMapStore,
+} from './beatMapStore';
+
+// History state (undo/redo)
+export {
+  useHistoryStore,
+  selectCanUndo,
+  selectCanRedo,
+  selectHistoryLength,
+  selectFutureLength,
+  createUndoableAction,
+  makeUndoable,
+} from './historyStore';
+export type {
+  HistoryDomain,
+  HistoryEntry,
+  HistoryState,
+  HistoryActions,
+  HistoryStore,
+} from './historyStore';

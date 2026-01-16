@@ -5,6 +5,12 @@
 
 export { WebGLParticleRenderer, type ParticleData } from './WebGLParticleRenderer';
 export { WebGLWaveformRenderer } from './WebGLWaveformRenderer';
+export {
+  WebGLEffectsRenderer,
+  type FilmGrainOptions,
+  type VignetteOptions,
+  type ChromaticAberrationOptions,
+} from './WebGLEffectsRenderer';
 
 /**
  * Check if WebGL is supported in the current environment
