@@ -255,11 +255,11 @@ const FloatingNote: React.FC<{ note: string; className?: string }> = ({ note, cl
 );
 
 const StepIndicator: React.FC<{ step: number; label: string }> = ({ step, label }) => (
-  <div className="flex items-center gap-2 mb-2">
-    <div className="w-5 h-5 rounded-full step-circle flex items-center justify-center text-[9px] font-bold text-white">
+  <div className="flex items-center gap-3 mb-3">
+    <div className="w-6 h-6 rounded-full step-circle flex items-center justify-center text-sm font-bold text-white">
       {step}
     </div>
-    <h3 className="text-[10px] font-bold text-cyan-400/80 tracking-wider uppercase">{label}</h3>
+    <h3 className="text-base font-bold text-cyan-400/80 tracking-wider uppercase">{label}</h3>
   </div>
 );
 
@@ -271,7 +271,7 @@ const ToggleSwitch: React.FC<{
   'data-control-id'?: string;
 }> = ({ enabled, onToggle, label, id, 'data-control-id': dataControlId }) => (
   <div className="flex justify-between items-center">
-    <label htmlFor={id} className="text-[9px] text-slate-400">
+    <label htmlFor={id} className="text-sm text-slate-400">
       {label}
     </label>
     <button
@@ -280,9 +280,9 @@ const ToggleSwitch: React.FC<{
       aria-checked={enabled}
       onClick={onToggle}
       data-control-id={dataControlId || id}
-      className={`toggle-switch w-8 h-4 rounded-full p-0.5 cursor-pointer ${enabled ? 'on' : 'off'}`}
+      className={`toggle-switch w-10 h-5 rounded-full p-0.5 cursor-pointer ${enabled ? 'on' : 'off'}`}
     >
-      <div className="toggle-knob w-3 h-3 bg-white rounded-full shadow" />
+      <div className="toggle-knob w-4 h-4 bg-white rounded-full shadow" />
     </button>
   </div>
 );
@@ -345,7 +345,7 @@ const DraggableTimeInput: React.FC<DraggableTimeInputProps> = ({
       value={value.toFixed(2)}
       onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
       onMouseDown={handleMouseDown}
-      className={`time-input w-14 py-0.5 px-1 rounded text-[9px] text-center ${
+      className={`time-input w-14 py-0.5 px-1 rounded text-sm text-center ${
         isDragging ? 'cursor-ew-resize bg-cyan-500/20' : 'cursor-ew-resize'
       }`}
       step={step}
@@ -822,7 +822,7 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
                   max={lyric.endTime - 0.1}
                   label="Start time"
                 />
-                <span className="text-[9px] text-slate-500">→</span>
+                <span className="text-sm text-slate-500">→</span>
                 <DraggableTimeInput
                   value={lyric.endTime}
                   onChange={(val) => onUpdateLyricTime(i, 'endTime', val)}
@@ -833,7 +833,7 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
                 <select
                   value={lyric.section || ''}
                   onChange={(e) => onUpdateLyricSection(i, e.target.value)}
-                  className="glass-select py-0.5 px-1 rounded text-[8px] flex-1"
+                  className="glass-select py-0.5 px-1 rounded text-xs flex-1"
                   aria-label="Section type"
                 >
                   <option value="">—</option>
@@ -854,7 +854,7 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
                       e.target.value ? (e.target.value as VisualStyle) : null
                     )
                   }
-                  className="glass-select py-0.5 px-1 rounded text-[8px] flex-1"
+                  className="glass-select py-0.5 px-1 rounded text-xs flex-1"
                   aria-label="Style override"
                 >
                   {STYLE_OVERRIDE_OPTIONS.map((style) => (
@@ -871,7 +871,7 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
                       e.target.value ? (e.target.value as ColorPalette) : null
                     )
                   }
-                  className="glass-select py-0.5 px-1 rounded text-[8px] flex-1"
+                  className="glass-select py-0.5 px-1 rounded text-xs flex-1"
                   aria-label="Palette override"
                 >
                   {PALETTE_OVERRIDE_OPTIONS.map((palette) => (
@@ -886,7 +886,7 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
                 type="text"
                 value={lyric.text}
                 onChange={(e) => onUpdateLyricText(i, e.target.value)}
-                className="w-full py-1 px-2 rounded text-[10px] text-slate-200 glass-card border border-white/5 focus:border-cyan-500/30 outline-none ml-5"
+                className="w-full py-1 px-2 rounded text-sm text-slate-200 glass-card border border-white/5 focus:border-cyan-500/30 outline-none ml-5"
                 style={{ width: 'calc(100% - 1.25rem)' }}
                 aria-label="Lyric text"
               />
@@ -913,17 +913,17 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
             /* View Mode */
             <button onClick={() => onEditLyric(i)} className="w-full text-left">
               <div className="flex justify-between items-center mb-0.5">
-                <span className="text-[9px] text-cyan-400 font-mono">
+                <span className="text-sm text-cyan-400 font-mono">
                   {formatTime(lyric.startTime)}
                 </span>
                 {lyric.section && (
-                  <span className="text-[8px] px-1.5 py-0.5 rounded-full bg-black/30 border border-white/5 uppercase tracking-wider text-slate-500">
+                  <span className="text-xs px-1.5 py-0.5 rounded-full bg-black/30 border border-white/5 uppercase tracking-wider text-slate-500">
                     {lyric.section}
                   </span>
                 )}
               </div>
               <p
-                className={`text-[10px] ${i === currentLyricIndex ? 'text-white' : 'text-slate-300/80'}`}
+                className={`text-sm ${i === currentLyricIndex ? 'text-white' : 'text-slate-300/80'}`}
               >
                 {lyric.text}
               </p>
@@ -952,7 +952,7 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
 
   return (
     <div
-      className="flex h-screen w-full text-white overflow-hidden relative"
+      className="flex h-screen w-full text-white overflow-x-hidden overflow-y-auto relative"
       style={{
         background: 'linear-gradient(135deg, #000011 0%, #001122 50%, #000022 100%)',
         fontFamily: 'system-ui, -apple-system, sans-serif',
@@ -973,7 +973,7 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
       {/* ========================================
           LEFT PANEL - Controls & Timeline
           ======================================== */}
-      <div className="w-72 flex flex-col z-10 relative glass-panel">
+      <div className="w-80 lg:w-96 flex flex-col z-10 relative glass-panel">
         {/* Header */}
         <div className="p-4 border-b border-cyan-500/20 relative overflow-hidden">
           <div
@@ -990,7 +990,7 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
               <h1 className="text-xl font-bold tracking-tight text-gradient-cyan">LYRICAL FLOW</h1>
               <div className="flex items-center gap-2 mt-1">
                 <RhythmDots />
-                <span className="text-[9px] text-cyan-400/60 tracking-widest uppercase">
+                <span className="text-sm text-cyan-400/60 tracking-widest uppercase">
                   AI Studio Pro
                 </span>
               </div>
@@ -1003,7 +1003,7 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
         </div>
 
         {/* Scrollable Content */}
-        <div className="flex-1 p-3 overflow-y-auto space-y-4 custom-scrollbar">
+        <div className="flex-1 p-4 overflow-y-auto space-y-5 custom-scrollbar">
           {/* Step 1: Source Material */}
           <section aria-labelledby="source-heading">
             <StepIndicator step={1} label="Source Material" />
@@ -1014,18 +1014,18 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
                 className="relative w-full p-3 rounded-xl glass-card flex items-center gap-3 cursor-pointer text-left"
                 aria-label="Upload audio file"
               >
-                <div className="w-9 h-9 rounded-full flex items-center justify-center text-base border border-cyan-500/30 bg-gradient-to-br from-cyan-500/20 to-blue-500/20">
+                <div className="w-11 h-11 rounded-full flex items-center justify-center text-base border border-cyan-500/30 bg-gradient-to-br from-cyan-500/20 to-blue-500/20">
                   {audioFile ? (
-                    <MusicalNoteIcon className="w-5 h-5 text-cyan-400" />
+                    <MusicalNoteIcon className="w-6 h-6 text-cyan-400" />
                   ) : (
-                    <ArrowUpTrayIcon className="w-5 h-5 text-cyan-400" />
+                    <ArrowUpTrayIcon className="w-6 h-6 text-cyan-400" />
                   )}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="text-xs font-semibold truncate">
                     {audioFile ? audioFile.name : 'Upload Audio'}
                   </div>
-                  <div className="text-[9px] text-cyan-400/60">
+                  <div className="text-sm text-cyan-400/60">
                     {audioFile ? formatTime(duration) : 'MP3, WAV, FLAC'}
                   </div>
                 </div>
@@ -1046,7 +1046,7 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
                 <div>
                   <label
                     htmlFor="creative-vision"
-                    className="text-[9px] text-cyan-400/60 flex items-center gap-1 mb-1"
+                    className="text-sm text-cyan-400/60 flex items-center gap-1 mb-1"
                   >
                     <SparklesIcon className="w-3 h-3" />
                     Creative Vision (Optional)
@@ -1056,11 +1056,11 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
                     placeholder="Describe your vision: 'Dark and moody with neon accents'..."
                     value={userCreativeVision}
                     onChange={(e) => onCreativeVisionChange(e.target.value)}
-                    className="w-full p-2 rounded-lg glass-card text-[10px] text-slate-300 placeholder-slate-500 outline-none resize-none h-16 focus:border-cyan-500/50"
+                    className="w-full p-2 rounded-lg glass-card text-sm text-slate-300 placeholder-slate-500 outline-none resize-none h-16 focus:border-cyan-500/50"
                   />
                 </div>
                 <div>
-                  <label htmlFor="lyrics-input" className="text-[9px] text-cyan-400/60 mb-1 block">
+                  <label htmlFor="lyrics-input" className="text-sm text-cyan-400/60 mb-1 block">
                     Lyrics (Optional)
                   </label>
                   <textarea
@@ -1068,7 +1068,7 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
                     placeholder="Paste lyrics here for better sync..."
                     value={userProvidedLyrics}
                     onChange={(e) => onLyricsChange(e.target.value)}
-                    className="w-full p-2 rounded-lg glass-card text-[10px] text-slate-300 placeholder-slate-500 outline-none resize-none h-20 focus:border-cyan-500/50"
+                    className="w-full p-2 rounded-lg glass-card text-sm text-slate-300 placeholder-slate-500 outline-none resize-none h-20 focus:border-cyan-500/50"
                   />
                 </div>
               </div>
@@ -1083,7 +1083,7 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
               {/* Mic Recording */}
               <button
                 onClick={isRecordingMic ? onStopMicRecording : onStartMicRecording}
-                className={`w-full p-2.5 rounded-lg glass-card flex items-center gap-2 text-left transition ${
+                className={`w-full p-3 rounded-lg glass-card flex items-center gap-2 text-left transition ${
                   isRecordingMic ? 'mic-recording border-red-500/50' : ''
                 }`}
                 aria-label={isRecordingMic ? 'Stop recording' : 'Start recording lyrics'}
@@ -1100,10 +1100,10 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
                   />
                 </div>
                 <div>
-                  <div className="text-[10px] font-medium">
+                  <div className="text-sm font-medium">
                     {isRecordingMic ? 'Recording...' : 'Speak Lyrics'}
                   </div>
-                  <div className="text-[8px] text-slate-500">
+                  <div className="text-xs text-slate-500">
                     {isRecordingMic ? 'Click to stop' : 'Use microphone to input lyrics'}
                   </div>
                 </div>
@@ -1112,15 +1112,15 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
               {/* Image Analysis */}
               <button
                 onClick={() => imageInputRef.current?.click()}
-                className="w-full p-2.5 rounded-lg glass-card flex items-center gap-2 text-left"
+                className="w-full p-3 rounded-lg glass-card flex items-center gap-2 text-left"
                 aria-label="Analyze image for visual inspiration"
               >
                 <div className="w-7 h-7 rounded-full flex items-center justify-center border border-cyan-500/30 bg-cyan-500/10">
                   <EyeDropperIcon className="w-4 h-4 text-cyan-400" />
                 </div>
                 <div>
-                  <div className="text-[10px] font-medium">Analyze Image</div>
-                  <div className="text-[8px] text-slate-500">Extract colors and mood</div>
+                  <div className="text-sm font-medium">Analyze Image</div>
+                  <div className="text-xs text-slate-500">Extract colors and mood</div>
                 </div>
               </button>
               <input
@@ -1133,8 +1133,8 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
               />
 
               {/* Aspect Ratio */}
-              <div className="p-2.5 rounded-lg glass-card">
-                <label className="text-[9px] text-slate-400 mb-2 block">Aspect Ratio</label>
+              <div className="p-3 rounded-lg glass-card">
+                <label className="text-sm text-slate-400 mb-2 block">Aspect Ratio</label>
                 <div
                   className="flex gap-1.5"
                   role="radiogroup"
@@ -1147,7 +1147,7 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
                       onClick={() => onAspectRatioChange(option.value)}
                       role="radio"
                       aria-checked={aspectRatio === option.value}
-                      className={`aspect-ratio-btn flex-1 py-1.5 rounded-md text-[10px] font-medium transition ${
+                      className={`aspect-ratio-btn flex-1 py-1.5 rounded-md text-sm font-medium transition ${
                         aspectRatio === option.value
                           ? 'active bg-cyan-500/20 text-cyan-400 border-cyan-500/50'
                           : 'bg-black/20 text-slate-400 border-white/5 hover:border-cyan-500/30'
@@ -1177,7 +1177,7 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
                   onClick={() => onStyleChange(style.value)}
                   role="radio"
                   aria-checked={currentStyle === style.value}
-                  className={`p-2 rounded-lg text-[9px] font-medium glass-card ${
+                  className={`p-2 rounded-lg text-sm font-medium glass-card ${
                     currentStyle === style.value ? 'active text-cyan-400' : 'text-slate-400'
                   }`}
                 >
@@ -1193,8 +1193,8 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
               requiresAdvancedMode
             >
               {/* Color Palette */}
-              <div className="p-2.5 rounded-lg glass-card">
-                <label className="text-[9px] text-slate-400 mb-2 block">Color Palette</label>
+              <div className="p-3 rounded-lg glass-card">
+                <label className="text-sm text-slate-400 mb-2 block">Color Palette</label>
                 <div className="grid grid-cols-5 gap-1.5" data-control-id="color-palette">
                   {COLOR_PALETTE_OPTIONS.map((palette) => (
                     <button
@@ -1224,14 +1224,14 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
               </div>
 
               {/* Font Family */}
-              <div className="p-2.5 rounded-lg glass-card">
-                <label className="text-[9px] text-slate-400 mb-1.5 block">Font Family</label>
+              <div className="p-3 rounded-lg glass-card">
+                <label className="text-sm text-slate-400 mb-1.5 block">Font Family</label>
                 <FontUploader currentFont={fontFamily} onFontChange={onFontFamilyChange} />
               </div>
 
               {/* Text Animation */}
-              <div className="p-2.5 rounded-lg glass-card">
-                <label htmlFor="text-animation" className="text-[9px] text-slate-400 mb-1.5 block">
+              <div className="p-3 rounded-lg glass-card">
+                <label htmlFor="text-animation" className="text-sm text-slate-400 mb-1.5 block">
                   Text Animation
                 </label>
                 <select
@@ -1239,7 +1239,7 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
                   data-control-id="text-animation"
                   value={textAnimation}
                   onChange={(e) => onTextAnimationChange(e.target.value as TextAnimationStyle)}
-                  className="glass-select w-full py-1.5 px-2 rounded-md text-[10px] text-slate-300 outline-none"
+                  className="glass-select w-full py-1.5 px-2 rounded-md text-sm text-slate-300 outline-none"
                 >
                   {TEXT_ANIMATION_OPTIONS.map((anim) => (
                     <option key={anim.value} value={anim.value}>
@@ -1256,23 +1256,20 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
               storageKey="genre-detection"
               requiresAdvancedMode
             >
-              <div className="p-2.5 rounded-lg glass-card">
+              <div className="p-3 rounded-lg glass-card">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-[9px] text-slate-400">Detected Genre</span>
+                  <span className="text-sm text-slate-400">Detected Genre</span>
                   {detectedGenre && (
-                    <span className="text-[9px] px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-400 border border-cyan-500/30">
+                    <span className="text-sm px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-400 border border-cyan-500/30">
                       {detectedGenre}
                     </span>
                   )}
                   {!detectedGenre && (
-                    <span className="text-[9px] text-slate-500 italic">No audio loaded</span>
+                    <span className="text-sm text-slate-500 italic">No audio loaded</span>
                   )}
                 </div>
                 <div>
-                  <label
-                    htmlFor="genre-override"
-                    className="text-[9px] text-slate-400 mb-1.5 block"
-                  >
+                  <label htmlFor="genre-override" className="text-sm text-slate-400 mb-1.5 block">
                     Override Genre
                   </label>
                   <select
@@ -1280,7 +1277,7 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
                     data-control-id="genre"
                     value={genreOverride || ''}
                     onChange={(e) => onGenreOverride(e.target.value || null)}
-                    className="glass-select w-full py-1.5 px-2 rounded-md text-[10px] text-slate-300 outline-none"
+                    className="glass-select w-full py-1.5 px-2 rounded-md text-sm text-slate-300 outline-none"
                   >
                     <option value="">Auto-detect</option>
                     {GENRE_OPTIONS.map((genre) => (
@@ -1291,7 +1288,7 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
                   </select>
                 </div>
                 {(genreOverride || detectedGenre) && (
-                  <p className="text-[8px] text-slate-500 mt-2">
+                  <p className="text-xs text-slate-500 mt-2">
                     Genre affects visual presets and audio reactivity
                   </p>
                 )}
@@ -1304,8 +1301,8 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
             <StepIndicator step={3} label="FX Controls" />
 
             {/* Animation Speed Slider */}
-            <div className="p-2.5 rounded-xl glass-card mb-1.5">
-              <div className="flex justify-between text-[9px] mb-1.5">
+            <div className="p-3 rounded-xl glass-card mb-1.5">
+              <div className="flex justify-between text-sm mb-1.5">
                 <label htmlFor="animation-speed" className="text-slate-400">
                   Animation Speed
                 </label>
@@ -1325,7 +1322,7 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
             </div>
 
             {/* Bass Shake Toggle */}
-            <div className="p-2.5 rounded-xl glass-card">
+            <div className="p-3 rounded-xl glass-card">
               <ToggleSwitch
                 id="bass-shake"
                 label="Bass Shake"
@@ -1335,26 +1332,26 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
             </div>
 
             {/* Lyrics Only Mode */}
-            <div className="p-2.5 rounded-xl glass-card">
+            <div className="p-3 rounded-xl glass-card">
               <ToggleSwitch
                 id="lyrics-only-mode"
                 label="Lyrics Only"
                 enabled={lyricsOnlyMode}
                 onToggle={onLyricsOnlyModeToggle}
               />
-              <p className="text-[8px] text-slate-500 mt-1">
+              <p className="text-xs text-slate-500 mt-1">
                 Disable background effects, show only lyrics
               </p>
             </div>
 
             {/* Lyrics Only Mode Settings - shown when mode is enabled */}
             {lyricsOnlyMode && (
-              <div className="space-y-2 p-2.5 rounded-xl glass-card border border-cyan-500/30">
-                <p className="text-[9px] text-cyan-400 font-medium">Lyrics Settings</p>
+              <div className="space-y-2 p-3 rounded-xl glass-card border border-cyan-500/30">
+                <p className="text-sm text-cyan-400 font-medium">Lyrics Settings</p>
 
                 {/* Font Size Scale */}
                 <div>
-                  <div className="flex justify-between text-[9px] mb-1">
+                  <div className="flex justify-between text-sm mb-1">
                     <label htmlFor="font-size-scale" className="text-slate-400">
                       Font Size
                     </label>
@@ -1377,7 +1374,7 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
                 <div>
                   <label
                     htmlFor="text-animation-lyrics"
-                    className="text-[9px] text-slate-400 block mb-1"
+                    className="text-sm text-slate-400 block mb-1"
                   >
                     Text Animation
                   </label>
@@ -1386,7 +1383,7 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
                     data-control-id="text-animation"
                     value={textAnimation}
                     onChange={(e) => onTextAnimationChange(e.target.value as TextAnimationStyle)}
-                    className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-2 py-1.5 text-[10px] text-slate-200 focus:outline-none focus:border-cyan-500/50"
+                    className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-2 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-cyan-500/50"
                   >
                     <option value="NONE">None</option>
                     <option value="TYPEWRITER">Typewriter</option>
@@ -1405,7 +1402,7 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
             <div className="flex gap-1.5 mt-2">
               <button
                 onClick={() => onGenerateBackground('image')}
-                className="flex-1 p-2 rounded-lg glass-card text-[9px] text-slate-400 hover:text-cyan-400 flex items-center justify-center gap-1 transition"
+                className="flex-1 p-2 rounded-lg glass-card text-sm text-slate-400 hover:text-cyan-400 flex items-center justify-center gap-1 transition"
                 aria-label="Generate background image"
               >
                 <PhotoIcon className="w-3 h-3" />
@@ -1413,7 +1410,7 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
               </button>
               <button
                 onClick={() => onGenerateBackground('video')}
-                className="flex-1 p-2 rounded-lg glass-card text-[9px] text-slate-400 hover:text-cyan-400 flex items-center justify-center gap-1 transition"
+                className="flex-1 p-2 rounded-lg glass-card text-sm text-slate-400 hover:text-cyan-400 flex items-center justify-center gap-1 transition"
                 aria-label="Generate background video"
               >
                 <FilmIcon className="w-3 h-3" />
@@ -1424,8 +1421,8 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
             {/* Advanced FX */}
             <CollapsibleSection title="Advanced FX" storageKey="advanced-fx" requiresAdvancedMode>
               {/* Reactivity Intensity */}
-              <div className="p-2.5 rounded-lg glass-card">
-                <div className="flex justify-between text-[9px] mb-1.5">
+              <div className="p-3 rounded-lg glass-card">
+                <div className="flex justify-between text-sm mb-1.5">
                   <label htmlFor="reactivity-intensity" className="text-slate-400">
                     Reactivity Intensity
                   </label>
@@ -1446,8 +1443,8 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
 
               {/* Shake Intensity (only when bass shake enabled) */}
               {bassShakeEnabled && (
-                <div className="p-2.5 rounded-lg glass-card">
-                  <div className="flex justify-between text-[9px] mb-1.5">
+                <div className="p-3 rounded-lg glass-card">
+                  <div className="flex justify-between text-sm mb-1.5">
                     <label htmlFor="shake-intensity" className="text-slate-400">
                       Shake Intensity
                     </label>
@@ -1468,7 +1465,7 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
               )}
 
               {/* Additional Toggles */}
-              <div className="p-2.5 rounded-lg glass-card space-y-2">
+              <div className="p-3 rounded-lg glass-card space-y-2">
                 <ToggleSwitch
                   id="dynamic-bg-pulse"
                   label="Dynamic BG Pulse"
@@ -1484,20 +1481,18 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
               </div>
 
               {/* Frequency Mapping */}
-              <div className="p-2.5 rounded-lg glass-card">
-                <label className="text-[9px] text-slate-400 mb-2 block">
-                  Audio Frequency Mapping
-                </label>
+              <div className="p-3 rounded-lg glass-card">
+                <label className="text-sm text-slate-400 mb-2 block">Audio Frequency Mapping</label>
                 <div className="space-y-2">
                   {(['pulse', 'motion', 'color'] as const).map((key) => (
                     <div key={key} className="flex items-center justify-between">
-                      <span className="text-[9px] text-slate-500 capitalize">{key}</span>
+                      <span className="text-sm text-slate-500 capitalize">{key}</span>
                       <select
                         value={frequencyMapping[key]}
                         onChange={(e) =>
                           onFrequencyMappingChange(key, e.target.value as FrequencyBand)
                         }
-                        className="glass-select py-1 px-2 rounded text-[9px] text-slate-300"
+                        className="glass-select py-1 px-2 rounded text-sm text-slate-300"
                         aria-label={`${key} frequency mapping`}
                         data-control-id={`frequency-mapping-${key}`}
                       >
@@ -1513,8 +1508,8 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
               </div>
 
               {/* Blend Mode */}
-              <div className="p-2.5 rounded-lg glass-card">
-                <label htmlFor="blend-mode" className="text-[9px] text-slate-400 mb-1.5 block">
+              <div className="p-3 rounded-lg glass-card">
+                <label htmlFor="blend-mode" className="text-sm text-slate-400 mb-1.5 block">
                   Blend Mode
                 </label>
                 <select
@@ -1522,7 +1517,7 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
                   data-control-id="blend-mode"
                   value={blendMode}
                   onChange={(e) => onBlendModeChange(e.target.value as BlendMode)}
-                  className="glass-select w-full py-1.5 px-2 rounded-md text-[10px] text-slate-300 outline-none"
+                  className="glass-select w-full py-1.5 px-2 rounded-md text-sm text-slate-300 outline-none"
                 >
                   {BLEND_MODE_OPTIONS.map((mode) => (
                     <option key={mode.value} value={mode.value}>
@@ -1540,14 +1535,14 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
               requiresAdvancedMode
             >
               {/* Lyric Effects */}
-              <div className="p-2.5 rounded-lg glass-card">
+              <div className="p-3 rounded-lg glass-card">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-[9px] text-slate-400">Lyric Effects</span>
-                  <span className="text-[8px] text-cyan-400/60">{lyricEffects.length} active</span>
+                  <span className="text-sm text-slate-400">Lyric Effects</span>
+                  <span className="text-xs text-cyan-400/60">{lyricEffects.length} active</span>
                 </div>
                 {/* Add Effect Dropdown */}
                 <select
-                  className="glass-select w-full py-1 px-2 rounded text-[9px] text-slate-300 mb-2"
+                  className="glass-select w-full py-1 px-2 rounded text-sm text-slate-300 mb-2"
                   value=""
                   onChange={(e) => {
                     if (e.target.value) {
@@ -1578,11 +1573,11 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
                             className={`w-2 h-2 rounded-full ${effect.enabled ? 'bg-cyan-400' : 'bg-slate-600'}`}
                             aria-label={effect.enabled ? 'Disable effect' : 'Enable effect'}
                           />
-                          <span className="text-[9px] text-slate-300">{effect.effectId}</span>
+                          <span className="text-sm text-slate-300">{effect.effectId}</span>
                         </div>
                         <button
                           onClick={() => onRemoveLyricEffect(index)}
-                          className="text-[9px] text-slate-500 hover:text-red-400"
+                          className="text-sm text-slate-500 hover:text-red-400"
                           aria-label="Remove effect"
                         >
                           ×
@@ -1594,16 +1589,16 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
               </div>
 
               {/* Background Effects */}
-              <div className="p-2.5 rounded-lg glass-card">
+              <div className="p-3 rounded-lg glass-card">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-[9px] text-slate-400">Background Effects</span>
-                  <span className="text-[8px] text-cyan-400/60">
+                  <span className="text-sm text-slate-400">Background Effects</span>
+                  <span className="text-xs text-cyan-400/60">
                     {backgroundEffects.length} active
                   </span>
                 </div>
                 {/* Add Effect Dropdown */}
                 <select
-                  className="glass-select w-full py-1 px-2 rounded text-[9px] text-slate-300 mb-2"
+                  className="glass-select w-full py-1 px-2 rounded text-sm text-slate-300 mb-2"
                   value=""
                   onChange={(e) => {
                     if (e.target.value) {
@@ -1634,11 +1629,11 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
                             className={`w-2 h-2 rounded-full ${effect.enabled ? 'bg-cyan-400' : 'bg-slate-600'}`}
                             aria-label={effect.enabled ? 'Disable effect' : 'Enable effect'}
                           />
-                          <span className="text-[9px] text-slate-300">{effect.effectId}</span>
+                          <span className="text-sm text-slate-300">{effect.effectId}</span>
                         </div>
                         <button
                           onClick={() => onRemoveBackgroundEffect(index)}
-                          className="text-[9px] text-slate-500 hover:text-red-400"
+                          className="text-sm text-slate-500 hover:text-red-400"
                           aria-label="Remove effect"
                         >
                           ×
@@ -1658,7 +1653,7 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
               <ModeGate mode="advanced">
                 <button
                   onClick={onEditModeToggle}
-                  className={`px-2 py-1 rounded-md text-[9px] glass-card flex items-center gap-1 transition ${
+                  className={`px-2 py-1 rounded-md text-sm glass-card flex items-center gap-1 transition ${
                     editMode
                       ? 'text-cyan-400 border-cyan-500/50'
                       : 'text-slate-400 hover:text-cyan-400'
@@ -1676,12 +1671,12 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
             {editMode && selectedLyricIndices.size > 0 && (
               <div className="bulk-actions-bar mb-2 p-2 rounded-lg glass-card border border-cyan-500/20">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-[9px] text-cyan-400">
+                  <span className="text-sm text-cyan-400">
                     {selectedLyricIndices.size} selected
                   </span>
                   <button
                     onClick={onSelectAllLyrics}
-                    className="text-[9px] text-slate-400 hover:text-cyan-400"
+                    className="text-sm text-slate-400 hover:text-cyan-400"
                   >
                     {selectedLyricIndices.size === lyrics.length ? 'Deselect All' : 'Select All'}
                   </button>
@@ -1693,13 +1688,13 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
                       type="number"
                       value={timeShiftValue}
                       onChange={(e) => setTimeShiftValue(e.target.value)}
-                      className="time-input w-12 py-0.5 px-1 rounded text-[9px] text-center"
+                      className="time-input w-12 py-0.5 px-1 rounded text-sm text-center"
                       placeholder="0"
                       step="0.1"
                     />
                     <button
                       onClick={() => onBulkTimeShift(parseFloat(timeShiftValue) || 0)}
-                      className="bulk-action-btn px-2 py-0.5 rounded text-[9px]"
+                      className="bulk-action-btn px-2 py-0.5 rounded text-sm"
                     >
                       Shift
                     </button>
@@ -1707,19 +1702,19 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
                   {/* Text Transform */}
                   <button
                     onClick={() => onTextTransform('upper')}
-                    className="bulk-action-btn px-2 py-0.5 rounded text-[9px]"
+                    className="bulk-action-btn px-2 py-0.5 rounded text-sm"
                   >
                     UPPER
                   </button>
                   <button
                     onClick={() => onTextTransform('lower')}
-                    className="bulk-action-btn px-2 py-0.5 rounded text-[9px]"
+                    className="bulk-action-btn px-2 py-0.5 rounded text-sm"
                   >
                     lower
                   </button>
                   <button
                     onClick={() => onTextTransform('capitalize')}
-                    className="bulk-action-btn px-2 py-0.5 rounded text-[9px]"
+                    className="bulk-action-btn px-2 py-0.5 rounded text-sm"
                   >
                     Title
                   </button>
@@ -1733,8 +1728,8 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
               storageKey="keyframe-editor"
               requiresAdvancedMode
             >
-              <div className="p-2.5 rounded-lg glass-card">
-                <p className="text-[8px] text-slate-500 mb-2">
+              <div className="p-3 rounded-lg glass-card">
+                <p className="text-xs text-slate-500 mb-2">
                   Apply motion presets to selected lyrics or all lyrics
                 </p>
                 {/* Apply to Selection */}
@@ -1742,7 +1737,7 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
                   <div className="flex items-center gap-2">
                     <select
                       id="motion-preset-select"
-                      className="glass-select flex-1 py-1 px-2 rounded text-[9px] text-slate-300"
+                      className="glass-select flex-1 py-1 px-2 rounded text-sm text-slate-300"
                       defaultValue=""
                       aria-label="Select motion preset"
                     >
@@ -1766,25 +1761,23 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
                         }
                       }}
                       disabled={selectedLyricIndices.size === 0}
-                      className="bulk-action-btn px-2 py-1 rounded text-[9px] disabled:opacity-50"
+                      className="bulk-action-btn px-2 py-1 rounded text-sm disabled:opacity-50"
                     >
                       Apply to Selected
                     </button>
                   </div>
                   {selectedLyricIndices.size === 0 && editMode && (
-                    <p className="text-[8px] text-amber-400/70">
-                      Select lyrics above to apply motion
-                    </p>
+                    <p className="text-xs text-amber-400/70">Select lyrics above to apply motion</p>
                   )}
                 </div>
                 {/* Preview list of presets */}
                 <div className="mt-3 border-t border-white/5 pt-2">
-                  <span className="text-[8px] text-slate-500">Available presets:</span>
+                  <span className="text-xs text-slate-500">Available presets:</span>
                   <div className="flex flex-wrap gap-1 mt-1">
                     {MOTION_PRESET_OPTIONS.slice(1).map((preset) => (
                       <span
                         key={preset.id}
-                        className="text-[8px] px-1.5 py-0.5 rounded bg-black/30 text-slate-400 border border-white/5"
+                        className="text-xs px-1.5 py-0.5 rounded bg-black/30 text-slate-400 border border-white/5"
                         title={preset.description}
                       >
                         {preset.label}
@@ -1808,7 +1801,7 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
             ) : (
               <div className="p-4 rounded-lg glass-card text-center">
                 <MusicalNoteIcon className="w-8 h-8 text-cyan-500/30 mx-auto mb-2" />
-                <p className="text-[10px] text-slate-500">Upload audio to see timeline</p>
+                <p className="text-sm text-slate-500">Upload audio to see timeline</p>
               </div>
             )}
           </section>
@@ -1907,14 +1900,14 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
           {/* Play/Pause */}
           <button
             onClick={onTogglePlay}
-            className="w-11 h-11 rounded-full flex items-center justify-center text-white btn-gradient-cyan"
+            className="w-12 h-12 rounded-full flex items-center justify-center text-white btn-gradient-cyan"
             aria-label={isPlaying ? 'Pause' : 'Play'}
             disabled={!audioUrl}
           >
             {isPlaying ? (
-              <PauseIcon className="w-5 h-5" />
+              <PauseIcon className="w-6 h-6" />
             ) : (
-              <PlayIcon className="w-5 h-5 ml-0.5" />
+              <PlayIcon className="w-6 h-6 ml-0.5" />
             )}
           </button>
 
@@ -1929,7 +1922,7 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
           </button>
 
           {/* Progress Bar */}
-          <div className="flex flex-col gap-1 w-48 ml-2">
+          <div className="flex flex-col gap-1 w-56 ml-3">
             <div
               ref={progressRef}
               className="h-1 rounded-full relative cursor-pointer progress-track"
@@ -1951,7 +1944,7 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
                 style={{ left: `${progressPercent}%`, transform: 'translate(-50%, -50%)' }}
               />
             </div>
-            <div className="flex justify-between text-[9px] text-cyan-400/60 font-mono">
+            <div className="flex justify-between text-sm text-cyan-400/60 font-mono">
               <span>{formatTime(currentTime)}</span>
               <span>{formatTime(duration)}</span>
             </div>
@@ -1966,13 +1959,13 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
         {/* Chat Toggle Button */}
         <button
           onClick={onChatToggle}
-          className={`absolute top-5 right-5 w-10 h-10 rounded-full flex items-center justify-center z-20 glass-panel transition-all ${
+          className={`absolute top-5 right-5 w-11 h-11 rounded-full flex items-center justify-center z-20 glass-panel transition-all ${
             chatOpen ? 'border-cyan-500/50 bg-cyan-500/10' : ''
           }`}
           aria-label={chatOpen ? 'Close AI Director chat' : 'Open AI Director chat'}
           aria-expanded={chatOpen}
         >
-          <ChatBubbleLeftRightIcon className="w-5 h-5 text-cyan-400" />
+          <ChatBubbleLeftRightIcon className="w-6 h-6 text-cyan-400" />
         </button>
       </main>
 
@@ -1981,7 +1974,7 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
           ======================================== */}
       {chatOpen && (
         <aside
-          className="w-72 flex flex-col z-30 relative glass-panel"
+          className="w-80 lg:w-96 flex flex-col z-30 relative glass-panel"
           aria-label="AI Director Chat"
         >
           {/* Resize Handle */}
@@ -2006,7 +1999,7 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
               </div>
               <div>
                 <h3 className="text-xs font-bold">AI Director</h3>
-                <p className="text-[9px] text-cyan-400/60">Always listening</p>
+                <p className="text-sm text-cyan-400/60">Always listening</p>
               </div>
             </div>
             <button
@@ -2030,7 +2023,7 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
                 className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}
               >
                 <div
-                  className={`p-2.5 rounded-xl text-[10px] leading-relaxed max-w-[85%] ${
+                  className={`p-2.5 rounded-xl text-sm leading-relaxed max-w-[85%] ${
                     msg.role === 'user'
                       ? 'chat-bubble-user text-white rounded-br-sm'
                       : 'chat-bubble-ai text-slate-300 rounded-bl-sm'
@@ -2038,7 +2031,7 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
                 >
                   {msg.text}
                 </div>
-                <span className="text-[8px] text-slate-600 mt-1 mx-1">
+                <span className="text-xs text-slate-600 mt-1 mx-1">
                   {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </span>
               </div>
@@ -2046,7 +2039,7 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
 
             {/* Processing Indicator */}
             {isProcessing && (
-              <div className="flex items-center gap-2 text-[10px] text-cyan-400">
+              <div className="flex items-center gap-2 text-sm text-cyan-400">
                 <SparklesIcon className="w-4 h-4" />
                 <span>Creating...</span>
                 <SoundWave count={5} />
@@ -2076,7 +2069,7 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
                 onChange={(e) => onChatInputChange(e.target.value)}
                 onKeyDown={handleChatKeyDown}
                 placeholder="Ask for ideas..."
-                className="w-full rounded-full py-2.5 pl-3 pr-10 text-[10px] text-white outline-none placeholder-slate-500 glass-card border border-cyan-500/20 focus:border-cyan-500/50"
+                className="w-full rounded-full py-2.5 pl-3 pr-10 text-sm text-white outline-none placeholder-slate-500 glass-card border border-cyan-500/20 focus:border-cyan-500/50"
                 aria-label="Chat message input"
               />
               <button
@@ -2095,7 +2088,7 @@ export const LyricalFlowUI: React.FC<LyricalFlowUIProps> = ({
                 <button
                   key={action}
                   onClick={() => onChatInputChange(action)}
-                  className="px-2 py-1 rounded-full text-[9px] text-slate-400 hover:text-cyan-300 glass-card border border-cyan-500/10 transition"
+                  className="px-2 py-1 rounded-full text-sm text-slate-400 hover:text-cyan-300 glass-card border border-cyan-500/10 transition"
                 >
                   {action}
                 </button>
