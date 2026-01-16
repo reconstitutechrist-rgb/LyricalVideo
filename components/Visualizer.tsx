@@ -1,8 +1,16 @@
-import React, { useRef, useEffect, useImperativeHandle, forwardRef, useState } from 'react';
+import React, {
+  useRef,
+  useEffect,
+  useImperativeHandle,
+  forwardRef,
+  useState,
+  useMemo,
+} from 'react';
 import {
   LyricLine,
   VisualStyle,
   GeneratedAsset,
+  VideoSegment,
   AspectRatio,
   VisualSettings,
   ColorPalette,
@@ -275,6 +283,32 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
       spectralFlux: 0,
     });
 
+    // Extended video segment tracking
+    const currentSegmentUrlRef = useRef<string | null>(null);
+
+    // Compute current video segment for extended backgrounds
+    const currentVideoSegment = useMemo((): VideoSegment | null => {
+      if (backgroundAsset?.type !== 'extended-video') return null;
+      const segments = backgroundAsset.segments;
+      if (!segments || segments.length === 0) return null;
+
+      const time = currentTime;
+
+      // Find the segment that contains the current time
+      const matchingSegment = segments.find(
+        (seg) => time >= seg.startTime && time < seg.startTime + seg.duration
+      );
+
+      if (matchingSegment) return matchingSegment;
+
+      // Handle edge cases: before first segment or after last segment
+      if (time < segments[0].startTime) {
+        return segments[0];
+      }
+      // Past the last segment - use the last one (for looping/ending scenarios)
+      return segments[segments.length - 1];
+    }, [backgroundAsset, currentTime]);
+
     // WebGL particle renderer for GPU-accelerated rendering
     const webglParticleRendererRef = useRef<WebGLParticleRenderer | null>(null);
     const useWebGLRef = useRef<boolean>(WebGLParticleRenderer.isSupported());
@@ -521,11 +555,50 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
       } else if (backgroundAsset?.type === 'video' && backgroundAsset.url) {
         setIsBgLoading(true);
         bgImageRef.current = null;
+      } else if (
+        backgroundAsset?.type === 'extended-video' &&
+        backgroundAsset.segments.length > 0
+      ) {
+        // Extended video: loading handled by segment switching effect
+        setIsBgLoading(true);
+        bgImageRef.current = null;
       } else {
         bgImageRef.current = null;
         setIsBgLoading(false);
       }
     }, [backgroundAsset]);
+
+    // Handle extended video segment switching
+    useEffect(() => {
+      if (!currentVideoSegment || !videoRef.current) return;
+
+      // Check if segment URL changed OR if video element was just created (has no src)
+      // This handles the case when switching from peak visual back to extended-video
+      const needsSourceUpdate =
+        currentSegmentUrlRef.current !== currentVideoSegment.url ||
+        !videoRef.current.src ||
+        videoRef.current.src === window.location.href; // Empty src resolves to current page URL
+
+      if (needsSourceUpdate) {
+        setIsBgLoading(true);
+        currentSegmentUrlRef.current = currentVideoSegment.url;
+        videoRef.current.src = currentVideoSegment.url;
+
+        // Set the video time relative to the segment's start
+        const segmentLocalTime = currentTime - currentVideoSegment.startTime;
+        videoRef.current.currentTime = Math.max(
+          0,
+          Math.min(segmentLocalTime, currentVideoSegment.duration)
+        );
+
+        // If playing, start the new segment
+        if (isPlaying) {
+          videoRef.current.play().catch((err) => {
+            console.warn('Failed to auto-play segment:', err);
+          });
+        }
+      }
+    }, [currentVideoSegment, currentTime, isPlaying]);
 
     useEffect(() => {
       if (audioRef.current) {
@@ -773,7 +846,10 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
         frameCountRef.current % 30 === 0 &&
         analysisCtxRef.current
       ) {
-        const source = backgroundAsset?.type === 'video' ? videoRef.current : bgImageRef.current;
+        const source =
+          backgroundAsset?.type === 'video' || backgroundAsset?.type === 'extended-video'
+            ? videoRef.current
+            : bgImageRef.current;
         if (source) {
           try {
             analysisCtxRef.current.drawImage(source, 0, 0, 1, 1);
@@ -803,7 +879,10 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
           // Lyrics-only mode: static background, no effects
           ctx.save();
           ctx.globalAlpha = 0.9;
-          if (backgroundAsset.type === 'video' && videoRef.current) {
+          if (
+            (backgroundAsset.type === 'video' || backgroundAsset.type === 'extended-video') &&
+            videoRef.current
+          ) {
             if (videoRef.current.readyState >= 2) {
               ctx.drawImage(videoRef.current, 0, 0, width, height);
             }
@@ -855,7 +934,10 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
           const drawX = -width / 2;
           const drawY = -height / 2;
 
-          if (backgroundAsset.type === 'video' && videoRef.current) {
+          if (
+            (backgroundAsset.type === 'video' || backgroundAsset.type === 'extended-video') &&
+            videoRef.current
+          ) {
             if (videoRef.current.readyState >= 2) {
               ctx.drawImage(videoRef.current, drawX, drawY, width, height);
             }
@@ -1772,12 +1854,24 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
         className="relative shadow-[0_0_50px_rgba(0,0,0,0.5)] rounded-xl overflow-hidden bg-black ring-1 ring-slate-700"
         style={{ width, height }}
       >
+        {/* Single video background (loops) */}
         {backgroundAsset?.type === 'video' && (
           <video
             ref={videoRef}
             src={backgroundAsset.url}
             crossOrigin="anonymous"
             loop
+            muted
+            className="hidden"
+            onLoadedData={() => setIsBgLoading(false)}
+            onError={() => setIsBgLoading(false)}
+          />
+        )}
+        {/* Extended video background (segments managed by effect) */}
+        {backgroundAsset?.type === 'extended-video' && (
+          <video
+            ref={videoRef}
+            crossOrigin="anonymous"
             muted
             className="hidden"
             onLoadedData={() => setIsBgLoading(false)}

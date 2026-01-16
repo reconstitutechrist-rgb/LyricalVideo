@@ -266,6 +266,39 @@ const App = () => {
     [videoPlanStore.videoPlan, setVideoPlanDirect]
   );
 
+  // ============================================================================
+  // Peak Visual Time-Switching - Dynamic background based on playback position
+  // ============================================================================
+  /**
+   * Computes the current background asset based on playback time.
+   * During emotional peaks, shows peak-specific visuals; otherwise shows shared background.
+   */
+  const currentBackgroundAsset = useMemo(() => {
+    // If no video plan with hybrid visuals, fall back to state background
+    if (!videoPlan?.hybridVisuals) {
+      return state.backgroundAsset;
+    }
+
+    const { sharedBackground, peakVisuals } = videoPlan.hybridVisuals;
+    const currentTime = state.currentTime;
+
+    // Check if current time falls within any emotional peak
+    if (videoPlan.emotionalPeaks && peakVisuals.length > 0) {
+      for (const peak of videoPlan.emotionalPeaks) {
+        if (currentTime >= peak.startTime && currentTime <= peak.endTime) {
+          // Find the peak visual for this peak
+          const peakVisual = peakVisuals.find((v) => v.peakId === peak.id);
+          if (peakVisual?.asset) {
+            return peakVisual.asset;
+          }
+        }
+      }
+    }
+
+    // Not in a peak - use shared background or fall back to state
+    return sharedBackground || state.backgroundAsset;
+  }, [videoPlan, state.currentTime, state.backgroundAsset]);
+
   // New UI toggle and audio duration
   const [useNewUI, setUseNewUI] = useState(true);
   const [audioDuration, setAudioDuration] = useState(0);
@@ -1193,7 +1226,13 @@ const App = () => {
           );
           return { type: 'image' as const, url, prompt: currentPrompt };
         } else if (currentModal === 'video') {
-          const url = await generateVideoBackground(currentPrompt, genAspectRatio, signal);
+          const url = await generateVideoBackground(
+            currentPrompt,
+            genAspectRatio,
+            '1080p',
+            undefined,
+            signal
+          );
           return { type: 'video' as const, url, prompt: currentPrompt };
         }
         return null;
@@ -1828,6 +1867,8 @@ const App = () => {
           const videoUrl = await generateVideoBackground(
             videoPlan.backgroundStrategy.videoPrompt,
             state.aspectRatio === '9:16' ? '9:16' : '16:9',
+            '1080p',
+            undefined,
             signal
           );
           return {
@@ -1886,6 +1927,8 @@ const App = () => {
           const videoUrl = await generateVideoBackground(
             videoPlan.backgroundStrategy.videoPrompt,
             state.aspectRatio === '9:16' ? '9:16' : '16:9',
+            '1080p',
+            undefined,
             signal
           );
           return {
@@ -3184,7 +3227,7 @@ const App = () => {
             currentTime={state.currentTime}
             isPlaying={state.isPlaying}
             style={state.currentStyle}
-            backgroundAsset={state.backgroundAsset}
+            backgroundAsset={currentBackgroundAsset}
             aspectRatio={state.aspectRatio}
             settings={state.visualSettings}
             onTimeUpdate={(t) => setState((prev) => ({ ...prev, currentTime: t }))}

@@ -266,17 +266,43 @@ export const generateFullVideoPlan = async (
   try {
     if (backgroundStrategy.useVideo) {
       throwIfAborted(signal);
-      onProgress?.('Generating motion background (this may take 1-2 minutes)...');
-      const videoUrl = await gemini.generateVideoBackground(
-        backgroundStrategy.videoPrompt!,
-        aspectRatio === '9:16' ? '9:16' : '16:9',
-        signal
-      );
-      sharedBackground = {
-        type: 'video',
-        url: videoUrl,
-        prompt: backgroundStrategy.videoPrompt!,
-      };
+
+      // Calculate song duration from lyrics
+      const songDuration = lyrics.length > 0 ? lyrics[lyrics.length - 1].endTime : 0;
+
+      // Use extended video generation for songs longer than 8 seconds
+      if (songDuration > 8) {
+        onProgress?.('Generating extended motion background (this may take several minutes)...');
+        const segments = await gemini.generateExtendedVideoBackground(
+          backgroundStrategy.videoPrompt!,
+          aspectRatio === '9:16' ? '9:16' : '16:9',
+          '1080p',
+          songDuration,
+          undefined, // No reference image for initial generation
+          (percent, message) => onProgress?.(`${message} (${percent}%)`),
+          signal
+        );
+        sharedBackground = {
+          type: 'extended-video',
+          segments,
+          prompt: backgroundStrategy.videoPrompt!,
+        };
+      } else {
+        // Short song - single 8-second clip is enough
+        onProgress?.('Generating motion background (this may take 1-2 minutes)...');
+        const videoUrl = await gemini.generateVideoBackground(
+          backgroundStrategy.videoPrompt!,
+          aspectRatio === '9:16' ? '9:16' : '16:9',
+          '1080p',
+          undefined,
+          signal
+        );
+        sharedBackground = {
+          type: 'video',
+          url: videoUrl,
+          prompt: backgroundStrategy.videoPrompt!,
+        };
+      }
     } else if (backgroundStrategy.imagePrompt) {
       throwIfAborted(signal);
       onProgress?.('Generating static background...');

@@ -297,3 +297,15 @@ export const PROJECT_TEMPLATES: ProjectTemplate[] = [
 
 // Extract unique genres from templates
 export const GENRE_LIST = [...new Set(PROJECT_TEMPLATES.map((t) => t.genre))];
+
+// Group templates by genre for quick lookup
+export const TEMPLATES_BY_GENRE = PROJECT_TEMPLATES.reduce(
+  (acc, template) => {
+    if (!acc[template.genre]) {
+      acc[template.genre] = [];
+    }
+    acc[template.genre].push(template);
+    return acc;
+  },
+  {} as Record<string, ProjectTemplate[]>
+);

@@ -570,6 +570,8 @@ export function useAIInteractions(options: AIInteractionsOptions): AIInteraction
             const videoUrl = await generateVideoBackground(
               videoPlan.backgroundStrategy.videoPrompt,
               aspectRatio === '9:16' ? '9:16' : '16:9',
+              '1080p',
+              undefined,
               signal
             );
             return {
@@ -623,6 +625,8 @@ export function useAIInteractions(options: AIInteractionsOptions): AIInteraction
           const videoUrl = await generateVideoBackground(
             videoPlan.backgroundStrategy.videoPrompt,
             aspectRatio === '9:16' ? '9:16' : '16:9',
+            '1080p',
+            undefined,
             signal
           );
           return {
@@ -689,7 +693,7 @@ export function useAIInteractions(options: AIInteractionsOptions): AIInteraction
       videoAspectRatio: '16:9' | '9:16'
     ): Promise<{ type: 'video'; url: string; prompt: string } | null> => {
       try {
-        const url = await generateVideoBackground(prompt, videoAspectRatio);
+        const url = await generateVideoBackground(prompt, videoAspectRatio, '1080p', undefined);
         const result = { type: 'video' as const, url, prompt };
         onBackgroundGenerated?.(result);
         return result;

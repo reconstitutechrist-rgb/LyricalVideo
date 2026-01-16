@@ -1,4 +1,12 @@
-import { GoogleGenAI, Type, Schema, FunctionDeclaration } from '@google/genai';
+import {
+  GoogleGenAI,
+  Type,
+  Schema,
+  FunctionDeclaration,
+  ThinkingLevel,
+  MediaResolution,
+  VideoGenerationReferenceType,
+} from '@google/genai';
 import {
   LyricLine,
   SongMetadata,
@@ -15,6 +23,8 @@ import {
   VideoPlanEffect,
   VisualStyle,
   GeneratedAsset,
+  SimpleAsset,
+  VideoSegment,
   // Sync types
   TimingPrecision,
   SyncConfig,
@@ -457,7 +467,7 @@ export const analyzeAudioAndGetLyrics = async (
       };
 
       const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
+        model: 'gemini-3-flash',
         contents: {
           parts: [
             { inlineData: { mimeType: audioFile.type, data: base64Audio } },
@@ -467,6 +477,10 @@ export const analyzeAudioAndGetLyrics = async (
         config: {
           responseMimeType: 'application/json',
           responseSchema: responseSchema,
+          mediaResolution: MediaResolution.MEDIA_RESOLUTION_HIGH,
+          thinkingConfig: {
+            thinkingLevel: ThinkingLevel.MEDIUM,
+          },
         },
       });
 
@@ -550,7 +564,7 @@ export const syncLyricsWithPrecision = async (
       onProgress?.(30);
 
       const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
+        model: 'gemini-3-flash',
         contents: {
           parts: [
             { inlineData: { mimeType: audioFile.type, data: base64Audio } },
@@ -560,6 +574,10 @@ export const syncLyricsWithPrecision = async (
         config: {
           responseMimeType: 'application/json',
           responseSchema: responseSchema,
+          mediaResolution: MediaResolution.MEDIA_RESOLUTION_HIGH,
+          thinkingConfig: {
+            thinkingLevel: ThinkingLevel.MEDIUM,
+          },
         },
       });
 
@@ -719,12 +737,15 @@ export const sendChatMessage = async (
 
   const ai = await getAI();
   const chat = ai.chats.create({
-    model: 'gemini-3-pro-preview',
+    model: 'gemini-3-pro',
     history: history,
     config: {
       systemInstruction:
         'You are a creative director for a high-end music video app. Help the user with artistic direction, visual ideas, and lyric refinement. Be concise, professional, and creative. You can generate background images using the provided tool if the user asks.',
       tools: [{ functionDeclarations: [generateBackgroundImageTool] }],
+      thinkingConfig: {
+        thinkingLevel: ThinkingLevel.MEDIUM,
+      },
     },
   });
 
@@ -747,8 +768,7 @@ export const generateBackground = async (
   if (signal?.aborted) throw createAbortError();
 
   const ai = await getAI();
-  const model =
-    size === '2K' || size === '4K' ? 'gemini-3-pro-image-preview' : 'gemini-2.5-flash-image';
+  const model = size === '2K' || size === '4K' ? 'gemini-3-pro-image' : 'gemini-2.5-flash-image';
 
   if (signal?.aborted) throw createAbortError();
 
@@ -783,7 +803,7 @@ export const analyzeImage = async (file: File, signal?: AbortSignal): Promise<st
   if (signal?.aborted) throw createAbortError();
 
   const response = await ai.models.generateContent({
-    model: 'gemini-3-pro-preview',
+    model: 'gemini-3-pro',
     contents: {
       parts: [
         { inlineData: { mimeType: file.type, data: base64 } },
@@ -792,14 +812,24 @@ export const analyzeImage = async (file: File, signal?: AbortSignal): Promise<st
         },
       ],
     },
+    config: {
+      thinkingConfig: {
+        thinkingLevel: ThinkingLevel.LOW,
+      },
+    },
   });
   return response.text || 'Could not analyze image.';
 };
+
+// Video resolution type for Veo 3.1
+export type VeoResolution = '720p' | '1080p' | '4k';
 
 // 5. Generate Video (Veo)
 export const generateVideoBackground = async (
   prompt: string,
   aspectRatio: '16:9' | '9:16',
+  resolution: VeoResolution = '1080p',
+  referenceImageBase64?: string,
   signal?: AbortSignal
 ): Promise<string> => {
   if (signal?.aborted) throw createAbortError();
@@ -818,14 +848,38 @@ export const generateVideoBackground = async (
 
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
+  // Build config with optional reference image for visual consistency
+  const videoConfig: {
+    numberOfVideos: number;
+    resolution: string;
+    aspectRatio: string;
+    referenceImages?: Array<{
+      referenceType: VideoGenerationReferenceType;
+      image: { bytesBase64Encoded: string; mimeType: string };
+    }>;
+  } = {
+    numberOfVideos: 1,
+    resolution: resolution,
+    aspectRatio: aspectRatio,
+  };
+
+  // Add reference image if provided (for visual consistency with static backgrounds)
+  if (referenceImageBase64) {
+    videoConfig.referenceImages = [
+      {
+        referenceType: VideoGenerationReferenceType.ASSET,
+        image: {
+          bytesBase64Encoded: referenceImageBase64,
+          mimeType: 'image/png',
+        },
+      },
+    ];
+  }
+
   let operation = await ai.models.generateVideos({
     model: 'veo-3.1-fast-generate-preview',
     prompt: prompt,
-    config: {
-      numberOfVideos: 1,
-      resolution: '1080p',
-      aspectRatio: aspectRatio,
-    },
+    config: videoConfig,
   });
 
   // Poll for completion with abort support
@@ -851,6 +905,189 @@ export const generateVideoBackground = async (
   return URL.createObjectURL(blob);
 };
 
+/**
+ * Generate extended video background by chaining multiple Veo clips
+ * Uses lastFrame to ensure seamless transitions between segments
+ *
+ * @param prompt - The video generation prompt
+ * @param aspectRatio - Video aspect ratio
+ * @param resolution - Video resolution
+ * @param targetDurationSeconds - Target total duration in seconds
+ * @param referenceImageBase64 - Optional reference image for first segment
+ * @param onProgress - Progress callback (0-100)
+ * @param signal - Abort signal
+ * @returns Array of video segments with URLs and timing
+ */
+export const generateExtendedVideoBackground = async (
+  prompt: string,
+  aspectRatio: '16:9' | '9:16',
+  resolution: VeoResolution = '1080p',
+  targetDurationSeconds: number,
+  referenceImageBase64?: string,
+  onProgress?: (percent: number, message: string) => void,
+  signal?: AbortSignal
+): Promise<VideoSegment[]> => {
+  if (signal?.aborted) throw createAbortError();
+
+  const SEGMENT_DURATION = 8; // Veo generates 8-second clips
+  const segmentsNeeded = Math.ceil(targetDurationSeconds / SEGMENT_DURATION);
+
+  // Limit to reasonable number of segments (max ~2 min = 15 segments)
+  const maxSegments = Math.min(segmentsNeeded, 15);
+
+  onProgress?.(0, `Generating ${maxSegments} video segments...`);
+
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const segments: VideoSegment[] = [];
+  let lastFrameBase64: string | undefined;
+
+  for (let i = 0; i < maxSegments; i++) {
+    if (signal?.aborted) throw createAbortError();
+
+    const segmentProgress = Math.round((i / maxSegments) * 100);
+    onProgress?.(segmentProgress, `Generating segment ${i + 1} of ${maxSegments}...`);
+
+    // Build config for this segment
+    const videoConfig: {
+      numberOfVideos: number;
+      resolution: string;
+      aspectRatio: string;
+      referenceImages?: Array<{
+        referenceType: VideoGenerationReferenceType;
+        image: { bytesBase64Encoded: string; mimeType: string };
+      }>;
+      lastFrame?: { bytesBase64Encoded: string; mimeType: string };
+    } = {
+      numberOfVideos: 1,
+      resolution: resolution,
+      aspectRatio: aspectRatio,
+    };
+
+    // First segment: use reference image if provided
+    if (i === 0 && referenceImageBase64) {
+      videoConfig.referenceImages = [
+        {
+          referenceType: VideoGenerationReferenceType.ASSET,
+          image: {
+            bytesBase64Encoded: referenceImageBase64,
+            mimeType: 'image/png',
+          },
+        },
+      ];
+    }
+
+    // Subsequent segments: use last frame from previous segment for continuity
+    if (i > 0 && lastFrameBase64) {
+      videoConfig.lastFrame = {
+        bytesBase64Encoded: lastFrameBase64,
+        mimeType: 'image/png',
+      };
+    }
+
+    // Generate the video segment
+    let operation = await ai.models.generateVideos({
+      model: 'veo-3.1-fast-generate-preview',
+      prompt: prompt,
+      config: videoConfig,
+    });
+
+    // Poll for completion
+    while (!operation.done) {
+      if (signal?.aborted) throw createAbortError();
+      await abortableDelay(5000, signal);
+      operation = await ai.operations.getVideosOperation({ operation: operation });
+    }
+
+    if (signal?.aborted) throw createAbortError();
+
+    const videoUri = operation.response?.generatedVideos?.[0]?.video?.uri;
+    if (!videoUri) throw new Error(`Video generation failed for segment ${i + 1}`);
+
+    // Download the video
+    const res = await fetchWithTimeout(`${videoUri}&key=${process.env.API_KEY}`, {
+      signal,
+      timeout: 60000,
+    });
+    if (!res.ok) {
+      throw new Error(`Failed to fetch video segment ${i + 1}: ${res.statusText}`);
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+
+    segments.push({
+      url,
+      startTime: i * SEGMENT_DURATION,
+      duration: SEGMENT_DURATION,
+    });
+
+    // Extract last frame for next segment (if not the last segment)
+    if (i < maxSegments - 1) {
+      try {
+        lastFrameBase64 = await extractLastFrameFromVideo(url);
+      } catch (err) {
+        console.warn(
+          `Could not extract last frame from segment ${i + 1}, continuing without continuity:`,
+          err
+        );
+        lastFrameBase64 = undefined;
+      }
+    }
+  }
+
+  onProgress?.(100, `Generated ${segments.length} video segments`);
+  return segments;
+};
+
+/**
+ * Helper to extract the last frame from a video as base64
+ */
+async function extractLastFrameFromVideo(videoUrl: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const video = document.createElement('video');
+    video.crossOrigin = 'anonymous';
+    video.src = videoUrl;
+    video.muted = true;
+
+    video.onloadedmetadata = () => {
+      // Seek to near the end (last 0.1 seconds)
+      video.currentTime = Math.max(0, video.duration - 0.1);
+    };
+
+    video.onseeked = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('Could not get canvas context'));
+          return;
+        }
+        ctx.drawImage(video, 0, 0);
+        // Get base64 without the data:image/png;base64, prefix
+        const dataUrl = canvas.toDataURL('image/png');
+        const base64 = dataUrl.split(',')[1];
+        resolve(base64);
+      } catch (err) {
+        reject(err);
+      } finally {
+        video.remove();
+      }
+    };
+
+    video.onerror = () => {
+      reject(new Error('Failed to load video for frame extraction'));
+      video.remove();
+    };
+
+    // Timeout after 30 seconds
+    setTimeout(() => {
+      reject(new Error('Timeout extracting last frame'));
+      video.remove();
+    }, 30000);
+  });
+}
+
 // 6. Transcribe Microphone
 export const transcribeMicrophone = async (audioBlob: Blob): Promise<string> => {
   const ai = await getAI();
@@ -865,7 +1102,7 @@ export const transcribeMicrophone = async (audioBlob: Blob): Promise<string> => 
   const base64 = await base64Promise;
 
   const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
+    model: 'gemini-3-flash',
     contents: {
       parts: [
         { inlineData: { mimeType: 'audio/webm', data: base64 } },
@@ -938,7 +1175,7 @@ export const detectMusicGenre = async (
       };
 
       const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
+        model: 'gemini-3-flash',
         contents: {
           parts: [
             { inlineData: { mimeType: audioFile.type, data: base64Audio } },
@@ -957,6 +1194,10 @@ Focus on the musical characteristics: instruments, rhythm, vocal style, producti
         config: {
           responseMimeType: 'application/json',
           responseSchema: responseSchema,
+          mediaResolution: MediaResolution.MEDIA_RESOLUTION_MEDIUM,
+          thinkingConfig: {
+            thinkingLevel: ThinkingLevel.LOW,
+          },
         },
       });
 
@@ -1033,7 +1274,7 @@ export const getVisualRecommendations = async (
   };
 
   const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
+    model: 'gemini-3-flash',
     contents: {
       parts: [
         { inlineData: { mimeType: audioFile.type, data: base64Audio } },
@@ -1051,6 +1292,10 @@ Consider the tempo, instruments, vocal style, and emotional content.`,
     config: {
       responseMimeType: 'application/json',
       responseSchema: responseSchema,
+      mediaResolution: MediaResolution.MEDIA_RESOLUTION_MEDIUM,
+      thinkingConfig: {
+        thinkingLevel: ThinkingLevel.MEDIUM,
+      },
     },
   });
 
@@ -1108,7 +1353,7 @@ export const detectEmotionalPeaks = async (
       };
 
       const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
+        model: 'gemini-3-flash',
         contents: {
           parts: [
             { inlineData: { mimeType: audioFile.type, data: base64Audio } },
@@ -1137,6 +1382,10 @@ Listen to the actual audio energy levels, not just the lyrics.`,
         config: {
           responseMimeType: 'application/json',
           responseSchema: responseSchema,
+          mediaResolution: MediaResolution.MEDIA_RESOLUTION_HIGH,
+          thinkingConfig: {
+            thinkingLevel: ThinkingLevel.HIGH,
+          },
         },
       });
 
@@ -1176,7 +1425,7 @@ export const generatePeakVisual = async (
   mood: VideoPlanMood,
   aspectRatio: AspectRatio = '16:9',
   signal?: AbortSignal
-): Promise<GeneratedAsset> => {
+): Promise<SimpleAsset> => {
   if (signal?.aborted) throw createAbortError();
   const ai = await getAI();
   if (signal?.aborted) throw createAbortError();
@@ -1204,7 +1453,7 @@ STYLE REQUIREMENTS:
 Create a visually striking background that enhances the emotional impact of this moment.`;
 
   const response = await ai.models.generateContent({
-    model: 'gemini-3-pro-image-preview',
+    model: 'gemini-3-pro-image',
     contents: { parts: [{ text: prompt }] },
     config: {
       imageConfig: {
@@ -1398,7 +1647,7 @@ Create a cohesive video plan that includes:
 Be creative but cohesive - all elements should work together harmoniously.`;
 
       const response = await ai.models.generateContent({
-        model: 'gemini-3-pro-preview',
+        model: 'gemini-3-pro',
         contents: {
           parts: [
             { inlineData: { mimeType: audioFile.type, data: base64Audio } },
@@ -1408,6 +1657,10 @@ Be creative but cohesive - all elements should work together harmoniously.`;
         config: {
           responseMimeType: 'application/json',
           responseSchema: responseSchema,
+          mediaResolution: MediaResolution.MEDIA_RESOLUTION_HIGH,
+          thinkingConfig: {
+            thinkingLevel: ThinkingLevel.HIGH,
+          },
         },
       });
 
@@ -1581,11 +1834,14 @@ Examples of modifications:
 Return the complete modified plan with updated summary and rationale.`;
 
       const response = await ai.models.generateContent({
-        model: 'gemini-3-pro-preview',
+        model: 'gemini-3-pro',
         contents: { parts: [{ text: prompt }] },
         config: {
           responseMimeType: 'application/json',
           responseSchema: responseSchema,
+          thinkingConfig: {
+            thinkingLevel: ThinkingLevel.MEDIUM,
+          },
         },
       });
 

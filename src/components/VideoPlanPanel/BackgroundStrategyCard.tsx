@@ -54,7 +54,7 @@ export const BackgroundStrategyCard: React.FC<BackgroundStrategyCardProps> = ({
         {/* Preview */}
         {sharedBackground ? (
           <div className="relative aspect-video rounded-lg overflow-hidden bg-gray-900 mb-3">
-            {sharedBackground.type === 'video' ? (
+            {sharedBackground.type === 'video' && (
               <video
                 src={sharedBackground.url}
                 className="w-full h-full object-cover"
@@ -63,7 +63,23 @@ export const BackgroundStrategyCard: React.FC<BackgroundStrategyCardProps> = ({
                 muted
                 playsInline
               />
-            ) : (
+            )}
+            {sharedBackground.type === 'extended-video' && sharedBackground.segments[0] && (
+              <>
+                <video
+                  src={sharedBackground.segments[0].url}
+                  className="w-full h-full object-cover"
+                  autoPlay
+                  loop
+                  muted
+                  playsInline
+                />
+                <div className="absolute top-2 right-2 bg-black/70 text-xs text-white px-2 py-1 rounded">
+                  {sharedBackground.segments.length} segments
+                </div>
+              </>
+            )}
+            {sharedBackground.type === 'image' && (
               <img
                 src={sharedBackground.url}
                 alt="Background preview"

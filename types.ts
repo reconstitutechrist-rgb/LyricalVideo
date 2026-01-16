@@ -143,10 +143,35 @@ export interface ExportProgress {
   message?: string;
 }
 
-export interface GeneratedAsset {
-  type: 'image' | 'video';
+/**
+ * Video segment for extended backgrounds (non-looping)
+ */
+export interface VideoSegment {
   url: string;
-  prompt: string;
+  startTime: number; // When this segment starts in the song
+  duration: number; // Segment duration (typically 8 seconds)
+}
+
+/**
+ * Simple asset with a single URL (image or single video)
+ * Used for peak visuals and UI previews that always have a URL
+ */
+export type SimpleAsset =
+  | { type: 'image'; url: string; prompt: string }
+  | { type: 'video'; url: string; prompt: string };
+
+/**
+ * Generated asset - supports single images, single videos, or extended video backgrounds
+ */
+export type GeneratedAsset =
+  | SimpleAsset
+  | { type: 'extended-video'; segments: VideoSegment[]; prompt: string };
+
+/**
+ * Type guard to check if an asset is a simple asset with a URL
+ */
+export function isSimpleAsset(asset: GeneratedAsset): asset is SimpleAsset {
+  return asset.type === 'image' || asset.type === 'video';
 }
 
 export interface ChatMessage {
@@ -364,11 +389,12 @@ export interface HybridVisualPlan {
 
 /**
  * Generated visual for an emotional peak
+ * Note: Peak visuals are always images (SimpleAsset), never extended-video
  */
 export interface PeakVisual {
   peakId: string;
   lyricIndices: number[]; // Which lyrics use this visual
-  asset: GeneratedAsset;
+  asset: SimpleAsset;
   transitionIn: 'fade' | 'cut' | 'dissolve';
   transitionOut: 'fade' | 'cut' | 'dissolve';
 }
