@@ -1,0 +1,2138 @@
+import React, { useState, useRef, useEffect } from 'react';
+import {
+  ArrowUpTrayIcon,
+  PlayIcon,
+  PauseIcon,
+  SparklesIcon,
+  ChatBubbleLeftRightIcon,
+  VideoCameraIcon,
+  PhotoIcon,
+  MusicalNoteIcon,
+  FilmIcon,
+  PencilSquareIcon,
+  AdjustmentsHorizontalIcon,
+  CheckCircleIcon,
+  ClockIcon,
+  ListBulletIcon,
+  PaintBrushIcon,
+  SwatchIcon,
+  XMarkIcon,
+  EyeDropperIcon,
+  LanguageIcon,
+  SpeakerWaveIcon,
+  BoltIcon,
+  PlusCircleIcon,
+  TrashIcon,
+  PaperAirplaneIcon,
+  CursorArrowRaysIcon,
+  Cog6ToothIcon,
+  ChevronRightIcon,
+  ChevronDownIcon,
+  Bars3Icon,
+  ArrowPathIcon,
+  DocumentTextIcon,
+  BackwardIcon,
+} from '@heroicons/react/24/solid';
+import Visualizer from './components/Visualizer';
+import Waveform from './components/Waveform';
+import { decodeAudio } from './utils/audio';
+import {
+  analyzeAudioAndGetLyrics,
+  sendChatMessage,
+  generateBackground,
+  generateVideoBackground,
+  transcribeMicrophone,
+  analyzeImage,
+} from './services/geminiService';
+import {
+  AppState,
+  LyricLine,
+  VisualStyle,
+  ChatMessage,
+  AspectRatio,
+  ImageSize,
+  ColorPalette,
+  TextAnimationStyle,
+  BlendMode,
+  FontFamily,
+  FrequencyBand,
+  TextKeyframe,
+  EasingType,
+  MotionPreset,
+} from './types';
+
+// ============================================
+// MOTION PRESETS
+// ============================================
+const MOTION_PRESETS: MotionPreset[] = [
+  {
+    label: 'Cinematic Rise',
+    keyframes: [
+      { time: 0, x: 0, y: 50, scale: 0.9, rotation: 0, opacity: 0, easing: 'easeOut' },
+      { time: 0.2, x: 0, y: 0, scale: 1, rotation: 0, opacity: 1, easing: 'linear' },
+      { time: 0.8, x: 0, y: 0, scale: 1, rotation: 0, opacity: 1, easing: 'easeIn' },
+      { time: 1, x: 0, y: -50, scale: 1.1, rotation: 0, opacity: 0 },
+    ],
+  },
+  {
+    label: 'Elastic Bounce',
+    keyframes: [
+      { time: 0, x: 0, y: 0, scale: 0, rotation: 0, opacity: 0, easing: 'bounce' },
+      { time: 0.3, x: 0, y: 0, scale: 1, rotation: 0, opacity: 1, easing: 'linear' },
+      { time: 0.9, x: 0, y: 0, scale: 1, rotation: 0, opacity: 1, easing: 'easeIn' },
+      { time: 1, x: 0, y: 0, scale: 0, rotation: 0, opacity: 0 },
+    ],
+  },
+  {
+    label: 'Neon Flicker',
+    keyframes: [
+      { time: 0, x: 0, y: 0, scale: 1, rotation: 0, opacity: 0, easing: 'linear' },
+      { time: 0.1, x: 0, y: 0, scale: 1, rotation: 0, opacity: 1, easing: 'linear' },
+      { time: 0.2, x: 0, y: 0, scale: 1, rotation: 0, opacity: 0.2, easing: 'linear' },
+      { time: 0.3, x: 0, y: 0, scale: 1, rotation: 0, opacity: 1, easing: 'linear' },
+      { time: 0.9, x: 0, y: 0, scale: 1.05, rotation: 0, opacity: 1, easing: 'easeOut' },
+      { time: 1, x: 0, y: 0, scale: 1.1, rotation: 0, opacity: 0 },
+    ],
+  },
+  {
+    label: 'Spiral In',
+    keyframes: [
+      { time: 0, x: 0, y: 0, scale: 0, rotation: -180, opacity: 0, easing: 'easeOut' },
+      { time: 0.4, x: 0, y: 0, scale: 1, rotation: 0, opacity: 1, easing: 'linear' },
+      { time: 0.9, x: 0, y: 0, scale: 1, rotation: 0, opacity: 1, easing: 'easeIn' },
+      { time: 1, x: 0, y: 0, scale: 1.5, rotation: 45, opacity: 0 },
+    ],
+  },
+  {
+    label: 'Slow Drift',
+    keyframes: [
+      { time: 0, x: -30, y: 0, scale: 1, rotation: 0, opacity: 0, easing: 'easeOut' },
+      { time: 0.2, x: 0, y: 0, scale: 1, rotation: 0, opacity: 1, easing: 'linear' },
+      { time: 0.8, x: 0, y: 0, scale: 1, rotation: 0, opacity: 1, easing: 'easeIn' },
+      { time: 1, x: 30, y: 0, scale: 1, rotation: 0, opacity: 0 },
+    ],
+  },
+];
+
+const MUSIC_SECTIONS = [
+  'Intro',
+  'Verse 1',
+  'Verse 2',
+  'Verse 3',
+  'Pre-Chorus',
+  'Chorus',
+  'Bridge',
+  'Outro',
+  'Instrumental',
+  'Hook',
+];
+
+const getSectionColorStyle = (section?: string) => {
+  if (!section) return 'border-l-transparent';
+  const s = section.toLowerCase();
+  if (s.includes('chorus') || s.includes('hook')) return 'border-l-amber-500 bg-amber-500/5';
+  if (s.includes('verse')) return 'border-l-blue-500 bg-blue-500/5';
+  if (s.includes('bridge')) return 'border-l-purple-500 bg-purple-500/5';
+  if (s.includes('intro') || s.includes('outro')) return 'border-l-cyan-500 bg-cyan-500/5';
+  return 'border-l-slate-500 bg-slate-500/5';
+};
+
+// ============================================
+// CONSTANTS
+// ============================================
+const blendModes: BlendMode[] = [
+  'source-over',
+  'multiply',
+  'screen',
+  'overlay',
+  'darken',
+  'lighten',
+  'color-dodge',
+  'color-burn',
+  'hard-light',
+  'soft-light',
+  'difference',
+  'exclusion',
+  'hue',
+  'saturation',
+  'color',
+  'luminosity',
+];
+const fonts: FontFamily[] = ['Space Grotesk', 'Inter', 'Roboto', 'Montserrat', 'Cinzel'];
+const freqBands: FrequencyBand[] = ['bass', 'mid', 'treble', 'avg'];
+const easings: EasingType[] = ['linear', 'easeIn', 'easeOut', 'easeInOut', 'bounce'];
+
+// ============================================
+// ICON COMPONENTS
+// ============================================
+const GripIcon = () => (
+  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+    <path d="M7 2a2 2 0 1 0 .001 4.001A2 2 0 0 0 7 2zm0 6a2 2 0 1 0 .001 4.001A2 2 0 0 0 7 8zm0 6a2 2 0 1 0 .001 4.001A2 2 0 0 0 7 14zm6-8a2 2 0 1 0-.001-4.001A2 2 0 0 0 13 6zm0 2a2 2 0 1 0 .001 4.001A2 2 0 0 0 13 8zm0 6a2 2 0 1 0 .001 4.001A2 2 0 0 0 13 14z" />
+  </svg>
+);
+
+// ============================================
+// DRAGGABLE CHAT COMPONENT
+// ============================================
+interface DraggableChatProps {
+  isOpen: boolean;
+  onClose: () => void;
+  isMinimized: boolean;
+  onToggleMinimize: () => void;
+  messages: ChatMessage[];
+  onSendMessage: (message: string) => void;
+  isProcessing: boolean;
+  onFileUpload: (file: File, type: 'image' | 'audio') => void;
+}
+
+const DraggableChat: React.FC<DraggableChatProps> = ({
+  isOpen,
+  onClose,
+  isMinimized,
+  onToggleMinimize,
+  messages,
+  onSendMessage,
+  isProcessing,
+  onFileUpload,
+}) => {
+  const [position, setPosition] = useState({
+    x: typeof window !== 'undefined' ? window.innerWidth - 440 : 500,
+    y: 80,
+  });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const [chatInput, setChatInput] = useState('');
+  const chatRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest('.chat-header-drag')) {
+      setIsDragging(true);
+      const rect = chatRef.current?.getBoundingClientRect();
+      if (rect) {
+        setDragOffset({
+          x: e.clientX - rect.left,
+          y: e.clientY - rect.top,
+        });
+      }
+    }
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (isDragging) {
+        const newX = Math.max(0, Math.min(e.clientX - dragOffset.x, window.innerWidth - 420));
+        const newY = Math.max(0, Math.min(e.clientY - dragOffset.y, window.innerHeight - 100));
+        setPosition({ x: newX, y: newY });
+      }
+    };
+
+    const handleMouseUp = () => {
+      setIsDragging(false);
+    };
+
+    if (isDragging) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging, dragOffset]);
+
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [messages]);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!chatInput.trim()) return;
+    onSendMessage(chatInput);
+    setChatInput('');
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const isImage = file.type.startsWith('image/');
+      onFileUpload(file, isImage ? 'image' : 'audio');
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div
+      ref={chatRef}
+      className={`fixed z-50 transition-all duration-200 ${isDragging ? 'cursor-grabbing select-none' : ''}`}
+      style={{
+        left: position.x,
+        top: position.y,
+        width: isMinimized ? '300px' : '420px',
+      }}
+      onMouseDown={handleMouseDown}
+    >
+      <div
+        className={`bg-black/85 backdrop-blur-2xl rounded-2xl border border-amber-500/20 shadow-2xl shadow-black/50 overflow-hidden flex flex-col ${isMinimized ? 'h-auto' : 'h-[520px]'}`}
+      >
+        {/* Chat Header - Draggable */}
+        <div className="chat-header-drag p-4 border-b border-white/10 flex items-center justify-between cursor-grab active:cursor-grabbing bg-gradient-to-r from-amber-500/10 to-blue-500/10">
+          <div className="flex items-center gap-3">
+            <div className="w-2 h-2 rounded-full bg-gradient-to-r from-amber-400 to-blue-400 animate-pulse"></div>
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-400 via-amber-500 to-blue-500 flex items-center justify-center shadow-lg shadow-amber-500/20">
+              <SparklesIcon className="w-4 h-4 text-white" />
+            </div>
+            <div>
+              <h3 className="font-semibold text-white text-sm">AI Director</h3>
+              {!isMinimized && <p className="text-xs text-amber-400/70">Drag to move</p>}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1">
+            <div className="text-white/30 mr-2">
+              <GripIcon />
+            </div>
+            <button
+              onClick={onToggleMinimize}
+              className="w-7 h-7 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center text-white/50 hover:text-white transition-colors"
+            >
+              {isMinimized ? (
+                <ChevronRightIcon className="w-4 h-4 rotate-90" />
+              ) : (
+                <ChevronRightIcon className="w-4 h-4 -rotate-90" />
+              )}
+            </button>
+            <button
+              onClick={onClose}
+              className="w-7 h-7 rounded-lg bg-white/5 hover:bg-red-500/20 flex items-center justify-center text-white/50 hover:text-red-400 transition-colors"
+            >
+              <XMarkIcon className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        {!isMinimized && (
+          <>
+            {/* Messages */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar" ref={scrollRef}>
+              {messages.map((msg, i) => (
+                <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'gap-3'}`}>
+                  {msg.role === 'model' && (
+                    <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-400 to-blue-500 flex-shrink-0 flex items-center justify-center shadow-lg shadow-amber-500/20">
+                      <SparklesIcon className="w-4 h-4 text-white" />
+                    </div>
+                  )}
+                  <div
+                    className={`max-w-[85%] p-3 rounded-2xl text-sm leading-relaxed ${
+                      msg.role === 'user'
+                        ? 'bg-gradient-to-r from-amber-500 to-blue-500 text-white rounded-tr-none'
+                        : 'bg-white/5 backdrop-blur rounded-tl-none border border-white/5 text-white/90'
+                    }`}
+                  >
+                    {msg.text}
+                  </div>
+                </div>
+              ))}
+              {isProcessing && (
+                <div className="flex gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-400 to-blue-500 flex-shrink-0 flex items-center justify-center">
+                    <SparklesIcon className="w-4 h-4 text-white animate-spin" />
+                  </div>
+                  <div className="bg-white/5 rounded-2xl rounded-tl-none p-3 border border-white/5">
+                    <div className="flex items-center gap-2 text-white/50 text-sm">
+                      <div className="flex gap-1">
+                        <span
+                          className="w-2 h-2 bg-amber-400 rounded-full animate-bounce"
+                          style={{ animationDelay: '0ms' }}
+                        ></span>
+                        <span
+                          className="w-2 h-2 bg-amber-400 rounded-full animate-bounce"
+                          style={{ animationDelay: '150ms' }}
+                        ></span>
+                        <span
+                          className="w-2 h-2 bg-amber-400 rounded-full animate-bounce"
+                          style={{ animationDelay: '300ms' }}
+                        ></span>
+                      </div>
+                      <span>Thinking...</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Input */}
+            <div className="p-4 border-t border-white/10 bg-black/30">
+              <form onSubmit={handleSubmit} className="relative flex gap-2">
+                {/* File Upload Button */}
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  className="hidden"
+                  accept="audio/*,image/*"
+                  onChange={handleFileSelect}
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="w-10 h-10 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center text-white/50 hover:text-amber-400 transition-colors flex-shrink-0"
+                  title="Upload audio or image"
+                >
+                  <ArrowUpTrayIcon className="w-5 h-5" />
+                </button>
+
+                <div className="relative flex-1">
+                  <input
+                    type="text"
+                    placeholder="Describe your vision..."
+                    value={chatInput}
+                    onChange={(e) => setChatInput(e.target.value)}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl pl-4 pr-12 py-2.5 text-sm text-white placeholder-white/40 focus:outline-none focus:border-amber-500/50 focus:bg-white/10 transition-all"
+                  />
+                  <button
+                    type="submit"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-lg bg-gradient-to-r from-amber-500 to-blue-500 flex items-center justify-center text-white hover:shadow-lg hover:shadow-amber-500/30 transition-all"
+                  >
+                    <PaperAirplaneIcon className="w-4 h-4" />
+                  </button>
+                </div>
+              </form>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ============================================
+// SLIDE-OUT PANEL COMPONENT
+// ============================================
+interface SlideOutPanelProps {
+  isOpen: boolean;
+  onClose: () => void;
+  title: string;
+  children: React.ReactNode;
+  side?: 'left' | 'right';
+}
+
+const SlideOutPanel: React.FC<SlideOutPanelProps> = ({
+  isOpen,
+  onClose,
+  title,
+  children,
+  side = 'left',
+}) => {
+  return (
+    <>
+      {/* Backdrop */}
+      {isOpen && (
+        <div className="fixed inset-0 bg-black/50 z-40 transition-opacity" onClick={onClose} />
+      )}
+
+      {/* Panel */}
+      <div
+        className={`fixed top-0 ${side === 'left' ? 'left-0' : 'right-0'} h-full w-80 bg-black/90 backdrop-blur-2xl border-${side === 'left' ? 'r' : 'l'} border-white/10 z-50 transform transition-transform duration-300 ${
+          isOpen ? 'translate-x-0' : side === 'left' ? '-translate-x-full' : 'translate-x-full'
+        }`}
+      >
+        {/* Header */}
+        <div className="h-14 px-4 flex items-center justify-between border-b border-white/10 bg-gradient-to-r from-amber-500/10 to-blue-500/10">
+          <h2 className="text-base font-semibold text-white">{title}</h2>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center text-white/50 hover:text-white transition-colors"
+          >
+            <XMarkIcon className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="h-[calc(100%-56px)] overflow-y-auto custom-scrollbar p-4">{children}</div>
+      </div>
+    </>
+  );
+};
+
+// ============================================
+// TIMELINE PANEL COMPONENT (Bottom)
+// ============================================
+interface TimelinePanelProps {
+  isOpen: boolean;
+  onClose: () => void;
+  lyrics: LyricLine[];
+  currentTime: number;
+  editMode: boolean;
+  setEditMode: (v: boolean) => void;
+  selectedLyricIndices: Set<number>;
+  toggleLyricSelection: (idx: number) => void;
+  selectAllLyrics: () => void;
+  updateLyric: (idx: number, field: keyof LyricLine, value: any) => void;
+  applyMotionPreset: (lyricIdx: number, presetIdx: number) => void;
+  updateKeyframe: (lyricIdx: number, kfIdx: number, field: keyof TextKeyframe, value: any) => void;
+  addKeyframe: (lyricIdx: number) => void;
+  removeKeyframe: (lyricIdx: number, kfIdx: number) => void;
+  activeKeyframeIndex: number | null;
+  setActiveKeyframeIndex: (idx: number | null) => void;
+  audioBuffer: AudioBuffer | null;
+  onSeek: (time: number) => void;
+  isPlaying: boolean;
+  setIsPlaying: (v: boolean) => void;
+  bulkTimeShift: string;
+  setBulkTimeShift: (v: string) => void;
+  applyBulkTimeShift: () => void;
+  applyTextTransform: (type: 'upper' | 'lower' | 'capitalize') => void;
+  applyOverride: (type: 'style' | 'palette', value: string | undefined) => void;
+}
+
+const TimelinePanel: React.FC<TimelinePanelProps> = ({
+  isOpen,
+  onClose,
+  lyrics,
+  currentTime,
+  editMode,
+  setEditMode,
+  selectedLyricIndices,
+  toggleLyricSelection,
+  selectAllLyrics,
+  updateLyric,
+  applyMotionPreset,
+  updateKeyframe,
+  addKeyframe,
+  removeKeyframe,
+  activeKeyframeIndex,
+  setActiveKeyframeIndex,
+  audioBuffer,
+  onSeek,
+  isPlaying,
+  setIsPlaying,
+  bulkTimeShift,
+  setBulkTimeShift,
+  applyBulkTimeShift,
+  applyTextTransform,
+  applyOverride,
+}) => {
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed bottom-0 left-0 right-0 h-80 bg-black/90 backdrop-blur-2xl border-t border-white/10 z-40 transform transition-transform duration-300">
+      {/* Header */}
+      <div className="h-12 px-4 flex items-center justify-between border-b border-white/10 bg-gradient-to-r from-amber-500/5 to-blue-500/5">
+        <div className="flex items-center gap-4">
+          <h2 className="text-sm font-semibold text-white flex items-center gap-2">
+            <ListBulletIcon className="w-4 h-4 text-amber-400" />
+            Timeline
+          </h2>
+
+          <button
+            onClick={() => {
+              setEditMode(!editMode);
+              if (editMode) {
+                // Clear selection when exiting edit mode
+              }
+            }}
+            className={`px-3 py-1 text-xs rounded-lg flex items-center gap-1.5 transition-colors ${
+              editMode
+                ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                : 'bg-white/5 text-white/60 border border-white/10 hover:bg-white/10'
+            }`}
+          >
+            <PencilSquareIcon className="w-3.5 h-3.5" />
+            {editMode ? 'Done Editing' : 'Edit Mode'}
+          </button>
+        </div>
+
+        <button
+          onClick={onClose}
+          className="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center text-white/50 hover:text-white transition-colors"
+        >
+          <ChevronDownIcon className="w-5 h-5" />
+        </button>
+      </div>
+
+      {/* Bulk Actions Bar (when in edit mode with selections) */}
+      {editMode && selectedLyricIndices.size > 0 && (
+        <div className="h-12 px-4 flex items-center gap-4 border-b border-white/10 bg-amber-500/5">
+          <span className="text-xs text-amber-400 font-medium">
+            {selectedLyricIndices.size} selected
+          </span>
+
+          <div className="h-4 w-px bg-white/10"></div>
+
+          {/* Time Shift */}
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-white/50">Shift:</span>
+            <input
+              type="number"
+              step="0.1"
+              value={bulkTimeShift}
+              onChange={(e) => setBulkTimeShift(e.target.value)}
+              className="w-16 bg-white/5 border border-white/10 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-amber-500/50"
+            />
+            <button
+              onClick={applyBulkTimeShift}
+              className="px-2 py-1 text-xs bg-amber-500/20 text-amber-400 rounded hover:bg-amber-500/30 transition-colors"
+            >
+              Apply
+            </button>
+          </div>
+
+          <div className="h-4 w-px bg-white/10"></div>
+
+          {/* Text Transform */}
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => applyTextTransform('upper')}
+              className="px-2 py-1 text-xs bg-white/5 text-white/60 rounded hover:bg-white/10 transition-colors"
+            >
+              ABC
+            </button>
+            <button
+              onClick={() => applyTextTransform('lower')}
+              className="px-2 py-1 text-xs bg-white/5 text-white/60 rounded hover:bg-white/10 transition-colors"
+            >
+              abc
+            </button>
+            <button
+              onClick={() => applyTextTransform('capitalize')}
+              className="px-2 py-1 text-xs bg-white/5 text-white/60 rounded hover:bg-white/10 transition-colors"
+            >
+              Abc
+            </button>
+          </div>
+
+          <div className="h-4 w-px bg-white/10"></div>
+
+          {/* Style Override */}
+          <select
+            onChange={(e) => applyOverride('style', e.target.value || undefined)}
+            className="bg-white/5 border border-white/10 rounded px-2 py-1 text-xs text-white/60 focus:outline-none focus:border-amber-500/50"
+          >
+            <option value="">Style Override</option>
+            {Object.values(VisualStyle).map((style) => (
+              <option key={style} value={style}>
+                {style.replace('_', ' ')}
+              </option>
+            ))}
+          </select>
+
+          {/* Palette Override */}
+          <select
+            onChange={(e) => applyOverride('palette', e.target.value || undefined)}
+            className="bg-white/5 border border-white/10 rounded px-2 py-1 text-xs text-white/60 focus:outline-none focus:border-amber-500/50"
+          >
+            <option value="">Palette Override</option>
+            {(['neon', 'sunset', 'ocean', 'matrix', 'fire'] as ColorPalette[]).map((p) => (
+              <option key={p} value={p}>
+                {p}
+              </option>
+            ))}
+          </select>
+
+          <div className="flex-1"></div>
+
+          <button onClick={selectAllLyrics} className="text-xs text-blue-400 hover:text-blue-300">
+            {selectedLyricIndices.size === lyrics.length ? 'Deselect All' : 'Select All'}
+          </button>
+        </div>
+      )}
+
+      {/* Timeline Content */}
+      <div className="h-[calc(100%-48px)] flex">
+        {/* Lyrics List */}
+        <div className="flex-1 overflow-y-auto custom-scrollbar p-3">
+          <div className="space-y-1">
+            {lyrics.map((line, idx) => {
+              const isActive = currentTime >= line.startTime && currentTime <= line.endTime;
+              const isSelected = editMode && selectedLyricIndices.has(idx);
+
+              return (
+                <div
+                  key={idx}
+                  onClick={() => {
+                    if (editMode) {
+                      toggleLyricSelection(idx);
+                    } else {
+                      onSeek(line.startTime);
+                      if (!isPlaying) setIsPlaying(true);
+                    }
+                  }}
+                  className={`relative p-2 rounded-lg text-sm transition-all cursor-pointer border-l-2 ${
+                    isSelected
+                      ? 'bg-amber-500/10 border-amber-500'
+                      : isActive
+                        ? 'bg-gradient-to-r from-amber-500/20 to-transparent border-amber-500'
+                        : getSectionColorStyle(line.section)
+                  } hover:bg-white/5`}
+                >
+                  {/* Waveform Background */}
+                  <div className="absolute inset-0 z-0 opacity-20 pointer-events-none rounded-lg overflow-hidden">
+                    <Waveform
+                      audioBuffer={audioBuffer}
+                      startTime={line.startTime}
+                      endTime={line.endTime}
+                      color={line.sentimentColor || '#f59e0b'}
+                    />
+                  </div>
+
+                  <div className="relative z-10 flex items-center gap-3">
+                    {editMode && (
+                      <div
+                        className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 ${
+                          isSelected
+                            ? 'bg-amber-500 border-amber-500'
+                            : 'border-white/30 bg-black/30'
+                        }`}
+                      >
+                        {isSelected && <CheckCircleIcon className="w-3 h-3 text-white" />}
+                      </div>
+                    )}
+
+                    <span className="text-xs text-amber-400/80 font-mono w-12 flex-shrink-0">
+                      {line.startTime.toFixed(1)}s
+                    </span>
+
+                    <div className="flex-1 min-w-0">
+                      <p className="text-white/90 truncate">{line.text}</p>
+                    </div>
+
+                    {line.section && (
+                      <span className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full bg-black/30 text-white/50 flex-shrink-0">
+                        {line.section}
+                      </span>
+                    )}
+
+                    {line.keyframes && line.keyframes.length > 0 && (
+                      <SparklesIcon
+                        className="w-4 h-4 text-blue-400 flex-shrink-0"
+                        title="Has motion keyframes"
+                      />
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Keyframe Editor Panel (when lyric selected in edit mode) */}
+        {editMode && selectedLyricIndices.size === 1 && (
+          <div className="w-72 border-l border-white/10 overflow-y-auto custom-scrollbar p-3 bg-black/30">
+            {(() => {
+              const idx = Array.from(selectedLyricIndices)[0];
+              const line = lyrics[idx];
+
+              return (
+                <div className="space-y-3">
+                  <h3 className="text-xs font-semibold text-white/50 uppercase tracking-wider">
+                    Edit Lyric #{idx + 1}
+                  </h3>
+
+                  {/* Timing */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[10px] text-white/40 block mb-1">Start Time</label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        value={line.startTime}
+                        onChange={(e) => updateLyric(idx, 'startTime', parseFloat(e.target.value))}
+                        className="w-full bg-white/5 border border-white/10 rounded px-2 py-1.5 text-xs text-amber-400 focus:outline-none focus:border-amber-500/50"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-white/40 block mb-1">End Time</label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        value={line.endTime}
+                        onChange={(e) => updateLyric(idx, 'endTime', parseFloat(e.target.value))}
+                        className="w-full bg-white/5 border border-white/10 rounded px-2 py-1.5 text-xs text-amber-400 focus:outline-none focus:border-amber-500/50"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Text */}
+                  <div>
+                    <label className="text-[10px] text-white/40 block mb-1">Lyric Text</label>
+                    <input
+                      type="text"
+                      value={line.text}
+                      onChange={(e) => updateLyric(idx, 'text', e.target.value)}
+                      className="w-full bg-white/5 border border-white/10 rounded px-2 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500/50"
+                    />
+                  </div>
+
+                  {/* Section */}
+                  <div>
+                    <label className="text-[10px] text-white/40 block mb-1">Section</label>
+                    <select
+                      value={line.section || ''}
+                      onChange={(e) => updateLyric(idx, 'section', e.target.value)}
+                      className="w-full bg-white/5 border border-white/10 rounded px-2 py-1.5 text-xs text-white/70 focus:outline-none focus:border-amber-500/50"
+                    >
+                      <option value="">No Section</option>
+                      {MUSIC_SECTIONS.map((s) => (
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Motion Presets */}
+                  <div className="pt-2 border-t border-white/10">
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-[10px] text-white/40 uppercase tracking-wider">
+                        Motion Presets
+                      </label>
+                      <button
+                        onClick={() => addKeyframe(idx)}
+                        className="text-[10px] text-amber-400 hover:text-amber-300 flex items-center gap-1"
+                      >
+                        <PlusCircleIcon className="w-3 h-3" /> Add Keyframe
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-1 mb-3">
+                      {MOTION_PRESETS.map((p, pIdx) => (
+                        <button
+                          key={pIdx}
+                          onClick={() => applyMotionPreset(idx, pIdx)}
+                          className="px-2 py-1.5 text-[10px] bg-white/5 hover:bg-amber-500/20 hover:text-amber-400 rounded border border-white/5 transition-colors text-white/60 truncate"
+                        >
+                          {p.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Keyframes List */}
+                    {line.keyframes && line.keyframes.length > 0 && (
+                      <div className="space-y-2">
+                        {line.keyframes.map((kf, kfIdx) => (
+                          <div
+                            key={kfIdx}
+                            className={`p-2 rounded border transition-colors ${
+                              activeKeyframeIndex === kfIdx
+                                ? 'bg-blue-500/10 border-blue-500/30'
+                                : 'bg-white/5 border-white/5'
+                            }`}
+                            onClick={() => setActiveKeyframeIndex(kfIdx)}
+                          >
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-[10px] text-white/50">
+                                Keyframe {kfIdx + 1}
+                              </span>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  removeKeyframe(idx, kfIdx);
+                                }}
+                                className="text-red-400/50 hover:text-red-400"
+                              >
+                                <TrashIcon className="w-3 h-3" />
+                              </button>
+                            </div>
+
+                            <div className="grid grid-cols-3 gap-1 text-[9px]">
+                              <div>
+                                <label className="text-white/30 block">Time</label>
+                                <input
+                                  type="number"
+                                  step="0.05"
+                                  min="0"
+                                  max="1"
+                                  value={kf.time}
+                                  onChange={(e) =>
+                                    updateKeyframe(idx, kfIdx, 'time', parseFloat(e.target.value))
+                                  }
+                                  className="w-full bg-black/30 border border-white/10 rounded px-1 py-0.5 text-blue-300"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-white/30 block">Scale</label>
+                                <input
+                                  type="number"
+                                  step="0.1"
+                                  value={kf.scale}
+                                  onChange={(e) =>
+                                    updateKeyframe(idx, kfIdx, 'scale', parseFloat(e.target.value))
+                                  }
+                                  className="w-full bg-black/30 border border-white/10 rounded px-1 py-0.5 text-white/70"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-white/30 block">Opacity</label>
+                                <input
+                                  type="number"
+                                  step="0.1"
+                                  min="0"
+                                  max="1"
+                                  value={kf.opacity}
+                                  onChange={(e) =>
+                                    updateKeyframe(
+                                      idx,
+                                      kfIdx,
+                                      'opacity',
+                                      parseFloat(e.target.value)
+                                    )
+                                  }
+                                  className="w-full bg-black/30 border border-white/10 rounded px-1 py-0.5 text-white/70"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-white/30 block">X</label>
+                                <input
+                                  type="number"
+                                  step="10"
+                                  value={kf.x}
+                                  onChange={(e) =>
+                                    updateKeyframe(idx, kfIdx, 'x', parseFloat(e.target.value))
+                                  }
+                                  className="w-full bg-black/30 border border-white/10 rounded px-1 py-0.5 text-white/70"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-white/30 block">Y</label>
+                                <input
+                                  type="number"
+                                  step="10"
+                                  value={kf.y}
+                                  onChange={(e) =>
+                                    updateKeyframe(idx, kfIdx, 'y', parseFloat(e.target.value))
+                                  }
+                                  className="w-full bg-black/30 border border-white/10 rounded px-1 py-0.5 text-white/70"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-white/30 block">Rotate</label>
+                                <input
+                                  type="number"
+                                  step="15"
+                                  value={kf.rotation}
+                                  onChange={(e) =>
+                                    updateKeyframe(
+                                      idx,
+                                      kfIdx,
+                                      'rotation',
+                                      parseFloat(e.target.value)
+                                    )
+                                  }
+                                  className="w-full bg-black/30 border border-white/10 rounded px-1 py-0.5 text-white/70"
+                                />
+                              </div>
+                            </div>
+
+                            <div className="mt-1">
+                              <label className="text-[9px] text-white/30 block">Easing</label>
+                              <select
+                                value={kf.easing || 'linear'}
+                                onChange={(e) =>
+                                  updateKeyframe(idx, kfIdx, 'easing', e.target.value)
+                                }
+                                className="w-full bg-black/30 border border-white/10 rounded px-1 py-0.5 text-[9px] text-white/70"
+                              >
+                                {easings.map((e) => (
+                                  <option key={e} value={e}>
+                                    {e}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ============================================
+// MAIN APP COMPONENT
+// ============================================
+const App = () => {
+  // --- Core State ---
+  const [state, setState] = useState<AppState>({
+    audioFile: null,
+    audioUrl: null,
+    lyrics: [],
+    userProvidedLyrics: '',
+    metadata: null,
+    currentStyle: VisualStyle.NEON_PULSE,
+    backgroundAsset: null,
+    currentTime: 0,
+    isPlaying: false,
+    isRecording: false,
+    aspectRatio: '16:9',
+    visualSettings: {
+      particleSpeed: 1.0,
+      speedX: 1.0,
+      speedY: 1.0,
+      intensity: 1.0,
+      palette: 'neon',
+      dynamicBackgroundOpacity: false,
+      textAnimation: 'KINETIC',
+      backgroundBlendMode: 'source-over',
+      fontFamily: 'Space Grotesk',
+      textStagger: 0.05,
+      textRevealDuration: 0.5,
+      kineticRotationRange: 0.5,
+      kineticOffsetRange: 30,
+      glitchFrequency: 0.5,
+      trailsEnabled: true,
+      cameraShake: true,
+      cameraShakeIntensity: 1.5,
+      frequencyMapping: {
+        pulse: 'bass',
+        motion: 'mid',
+        color: 'treble',
+      },
+    },
+    audioBuffer: null,
+  });
+
+  // --- UI State ---
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [chatOpen, setChatOpen] = useState(true);
+  const [chatMinimized, setChatMinimized] = useState(false);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
+    {
+      role: 'model',
+      text: "Welcome to Lyrical Flow! I'm your AI Director. Upload your audio or describe your vision, and let's create something amazing together.",
+      timestamp: new Date(),
+    },
+  ]);
+
+  // --- Panel State ---
+  const [activePanel, setActivePanel] = useState<'styles' | 'effects' | 'advanced' | null>(null);
+  const [timelineOpen, setTimelineOpen] = useState(false);
+
+  // --- Editing State ---
+  const [editMode, setEditMode] = useState(false);
+  const [selectedLyricIndices, setSelectedLyricIndices] = useState<Set<number>>(new Set());
+  const [activeKeyframeIndex, setActiveKeyframeIndex] = useState<number | null>(null);
+  const [bulkTimeShift, setBulkTimeShift] = useState<string>('0.1');
+
+  // --- Refs ---
+  const audioElementRef = useRef<HTMLAudioElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const mediaStreamDestRef = useRef<MediaStreamAudioDestinationNode | null>(null);
+
+  // ============================================
+  // HANDLERS
+  // ============================================
+
+  const handleAudioUpload = async (file: File) => {
+    const url = URL.createObjectURL(file);
+    setIsProcessing(true);
+
+    try {
+      const buffer = await decodeAudio(file);
+      const { lyrics, metadata } = await analyzeAudioAndGetLyrics(file, state.userProvidedLyrics);
+
+      setState((prev) => ({
+        ...prev,
+        audioFile: file,
+        audioUrl: url,
+        lyrics,
+        metadata,
+        audioBuffer: buffer,
+      }));
+
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          role: 'model',
+          text: `Great! I've analyzed "${metadata.title}" (${metadata.genre}). Found ${lyrics.length} lyric lines. The timeline is ready - click the timeline button below to edit, or tell me what style you'd like!`,
+          timestamp: new Date(),
+        },
+      ]);
+
+      setTimelineOpen(true);
+    } catch (err) {
+      console.error(err);
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          role: 'model',
+          text: 'I had trouble analyzing that audio file. Could you try again or try a different file?',
+          timestamp: new Date(),
+        },
+      ]);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleImageUpload = async (file: File) => {
+    const url = URL.createObjectURL(file);
+    setState((prev) => ({
+      ...prev,
+      backgroundAsset: { type: 'image', url, prompt: 'User uploaded image' },
+    }));
+    setChatMessages((prev) => [
+      ...prev,
+      {
+        role: 'model',
+        text: 'Background image applied! The visualizer will now use your image as the backdrop.',
+        timestamp: new Date(),
+      },
+    ]);
+  };
+
+  const handleFileUpload = async (file: File, type: 'image' | 'audio') => {
+    if (type === 'audio') {
+      await handleAudioUpload(file);
+    } else {
+      await handleImageUpload(file);
+    }
+  };
+
+  const handleSendMessage = async (message: string) => {
+    const userMsg: ChatMessage = { role: 'user', text: message, timestamp: new Date() };
+    setChatMessages((prev) => [...prev, userMsg]);
+    setIsProcessing(true);
+
+    try {
+      const history = chatMessages.map((m) => ({ role: m.role, parts: [{ text: m.text }] }));
+      const response = await sendChatMessage(history, message);
+
+      if (response.text) {
+        setChatMessages((prev) => [
+          ...prev,
+          { role: 'model', text: response.text || '', timestamp: new Date() },
+        ]);
+      }
+
+      // Handle function calls from AI
+      if (response.functionCalls) {
+        for (const call of response.functionCalls) {
+          if (call.name === 'generateBackgroundImage') {
+            const args = call.args as any;
+            setChatMessages((prev) => [
+              ...prev,
+              {
+                role: 'model',
+                text: `Generating background: "${args.prompt}"...`,
+                timestamp: new Date(),
+              },
+            ]);
+            const url = await generateBackground(
+              args.prompt,
+              args.aspectRatio || state.aspectRatio,
+              args.resolution || '1K'
+            );
+            setState((prev) => ({
+              ...prev,
+              backgroundAsset: { type: 'image', url, prompt: args.prompt },
+            }));
+            setChatMessages((prev) => [
+              ...prev,
+              { role: 'model', text: `Background generated and applied!`, timestamp: new Date() },
+            ]);
+          }
+          if (call.name === 'generateBackgroundVideo') {
+            const args = call.args as any;
+            setChatMessages((prev) => [
+              ...prev,
+              {
+                role: 'model',
+                text: `Generating video background: "${args.prompt}"...`,
+                timestamp: new Date(),
+              },
+            ]);
+            const url = await generateVideoBackground(
+              args.prompt,
+              args.aspectRatio || state.aspectRatio
+            );
+            setState((prev) => ({
+              ...prev,
+              backgroundAsset: { type: 'video', url, prompt: args.prompt },
+            }));
+            setChatMessages((prev) => [
+              ...prev,
+              {
+                role: 'model',
+                text: `Video background generated and applied!`,
+                timestamp: new Date(),
+              },
+            ]);
+          }
+          if (call.name === 'setVisualStyle') {
+            const args = call.args as any;
+            if (args.style && Object.values(VisualStyle).includes(args.style)) {
+              setState((prev) => ({ ...prev, currentStyle: args.style }));
+              setChatMessages((prev) => [
+                ...prev,
+                {
+                  role: 'model',
+                  text: `Visual style set to ${args.style.replace('_', ' ')}.`,
+                  timestamp: new Date(),
+                },
+              ]);
+            }
+          }
+          if (call.name === 'openPanel') {
+            const args = call.args as any;
+            if (args.panel === 'timeline') setTimelineOpen(true);
+            else if (args.panel === 'styles') setActivePanel('styles');
+            else if (args.panel === 'effects') setActivePanel('effects');
+            else if (args.panel === 'advanced') setActivePanel('advanced');
+          }
+        }
+      }
+    } catch (err) {
+      console.error(err);
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          role: 'model',
+          text: 'Sorry, I encountered an error. Please try again.',
+          timestamp: new Date(),
+        },
+      ]);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const togglePlay = () => {
+    setState((prev) => ({ ...prev, isPlaying: !prev.isPlaying }));
+  };
+
+  // --- Lyric Editing Functions ---
+  const updateLyric = (index: number, field: keyof LyricLine, value: any) => {
+    const newLyrics = [...state.lyrics];
+    newLyrics[index] = { ...newLyrics[index], [field]: value };
+    setState((prev) => ({ ...prev, lyrics: newLyrics }));
+  };
+
+  const applyMotionPreset = (lyricIndex: number, presetIndex: number) => {
+    if (presetIndex < 0) return;
+    const preset = MOTION_PRESETS[presetIndex];
+    updateLyric(lyricIndex, 'keyframes', preset.keyframes);
+  };
+
+  const updateKeyframe = (
+    lyricIndex: number,
+    kfIndex: number,
+    field: keyof TextKeyframe,
+    value: any
+  ) => {
+    const line = state.lyrics[lyricIndex];
+    if (!line.keyframes) return;
+    const newKeyframes = [...line.keyframes];
+    newKeyframes[kfIndex] = { ...newKeyframes[kfIndex], [field]: value };
+    updateLyric(lyricIndex, 'keyframes', newKeyframes);
+  };
+
+  const addKeyframe = (lyricIndex: number) => {
+    const line = state.lyrics[lyricIndex];
+    const newKeyframes = line.keyframes ? [...line.keyframes] : [];
+    let defaultTime = 1.0;
+    if (newKeyframes.length > 0) {
+      const lastTime = newKeyframes[newKeyframes.length - 1].time;
+      if (lastTime < 0.9) defaultTime = lastTime + 0.1;
+    }
+    newKeyframes.push({
+      time: defaultTime,
+      x: 0,
+      y: 0,
+      scale: 1,
+      rotation: 0,
+      opacity: 1,
+      easing: 'linear',
+    });
+    updateLyric(lyricIndex, 'keyframes', newKeyframes);
+    setActiveKeyframeIndex(newKeyframes.length - 1);
+  };
+
+  const removeKeyframe = (lyricIndex: number, kfIndex: number) => {
+    const line = state.lyrics[lyricIndex];
+    if (!line.keyframes) return;
+    const newKeyframes = line.keyframes.filter((_, i) => i !== kfIndex);
+    updateLyric(lyricIndex, 'keyframes', newKeyframes);
+  };
+
+  const toggleLyricSelection = (index: number) => {
+    const newSet = new Set(selectedLyricIndices);
+    if (newSet.has(index)) {
+      newSet.delete(index);
+      setActiveKeyframeIndex(null);
+    } else {
+      newSet.clear();
+      newSet.add(index);
+    }
+    setSelectedLyricIndices(newSet);
+  };
+
+  const selectAllLyrics = () => {
+    if (selectedLyricIndices.size === state.lyrics.length) {
+      setSelectedLyricIndices(new Set());
+    } else {
+      setSelectedLyricIndices(new Set(state.lyrics.map((_, i) => i)));
+    }
+  };
+
+  const applyBulkTimeShift = () => {
+    const shift = parseFloat(bulkTimeShift);
+    if (isNaN(shift) || shift === 0 || selectedLyricIndices.size === 0) return;
+    const newLyrics = state.lyrics.map((line, idx) => {
+      if (selectedLyricIndices.has(idx)) {
+        return {
+          ...line,
+          startTime: Number((line.startTime + shift).toFixed(2)),
+          endTime: Number((line.endTime + shift).toFixed(2)),
+        };
+      }
+      return line;
+    });
+    setState((prev) => ({ ...prev, lyrics: newLyrics }));
+  };
+
+  const applyTextTransform = (type: 'upper' | 'lower' | 'capitalize') => {
+    if (selectedLyricIndices.size === 0) return;
+    const newLyrics = state.lyrics.map((line, idx) => {
+      if (selectedLyricIndices.has(idx)) {
+        let text = line.text;
+        if (type === 'upper') text = text.toUpperCase();
+        else if (type === 'lower') text = text.toLowerCase();
+        else if (type === 'capitalize')
+          text = text.toLowerCase().replace(/(^\w|\s\w)/g, (m) => m.toUpperCase());
+        return { ...line, text };
+      }
+      return line;
+    });
+    setState((prev) => ({ ...prev, lyrics: newLyrics }));
+  };
+
+  const applyOverride = (type: 'style' | 'palette', value: string | undefined) => {
+    if (selectedLyricIndices.size === 0) return;
+    const newLyrics = state.lyrics.map((line, idx) => {
+      if (selectedLyricIndices.has(idx)) {
+        if (type === 'style') return { ...line, styleOverride: value as VisualStyle | undefined };
+        if (type === 'palette')
+          return { ...line, paletteOverride: value as ColorPalette | undefined };
+      }
+      return line;
+    });
+    setState((prev) => ({ ...prev, lyrics: newLyrics }));
+  };
+
+  const updateVisualSetting = <K extends keyof AppState['visualSettings']>(
+    key: K,
+    value: AppState['visualSettings'][K]
+  ) => {
+    setState((prev) => ({ ...prev, visualSettings: { ...prev.visualSettings, [key]: value } }));
+  };
+
+  const updateFrequencyMapping = (
+    key: keyof AppState['visualSettings']['frequencyMapping'],
+    value: FrequencyBand
+  ) => {
+    setState((prev) => ({
+      ...prev,
+      visualSettings: {
+        ...prev.visualSettings,
+        frequencyMapping: { ...prev.visualSettings.frequencyMapping, [key]: value },
+      },
+    }));
+  };
+
+  const onKeyframePositionUpdate = (lyricIndex: number, kfIndex: number, x: number, y: number) => {
+    updateKeyframe(lyricIndex, kfIndex, 'x', x);
+    updateKeyframe(lyricIndex, kfIndex, 'y', y);
+  };
+
+  // ============================================
+  // RENDER
+  // ============================================
+  return (
+    <div className="h-screen w-full bg-gray-950 text-white overflow-hidden relative font-sans">
+      {/* Ambient Background */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden">
+        <div className="absolute top-[-20%] left-[-10%] w-[600px] h-[600px] bg-amber-500/10 rounded-full blur-[150px]"></div>
+        <div className="absolute bottom-[-20%] right-[-10%] w-[600px] h-[600px] bg-blue-500/10 rounded-full blur-[150px]"></div>
+      </div>
+
+      {/* Main Layout */}
+      <div className="relative z-10 h-full flex">
+        {/* Left Sidebar - Minimal Icons */}
+        <div className="w-16 bg-black/40 backdrop-blur-xl border-r border-white/5 flex flex-col items-center py-4">
+          {/* Logo */}
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-400 via-amber-500 to-blue-500 flex items-center justify-center mb-6 shadow-lg shadow-amber-500/30">
+            <MusicalNoteIcon className="w-5 h-5 text-white" />
+          </div>
+
+          {/* Nav Icons */}
+          <div className="flex-1 flex flex-col gap-2">
+            <button
+              onClick={() => setActivePanel(activePanel === 'styles' ? null : 'styles')}
+              className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${
+                activePanel === 'styles'
+                  ? 'bg-amber-500/20 border border-amber-500/30 text-amber-400'
+                  : 'bg-white/5 hover:bg-white/10 text-white/50 hover:text-white'
+              }`}
+              title="Visual Styles"
+            >
+              <PaintBrushIcon className="w-5 h-5" />
+            </button>
+
+            <button
+              onClick={() => setActivePanel(activePanel === 'effects' ? null : 'effects')}
+              className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${
+                activePanel === 'effects'
+                  ? 'bg-amber-500/20 border border-amber-500/30 text-amber-400'
+                  : 'bg-white/5 hover:bg-white/10 text-white/50 hover:text-white'
+              }`}
+              title="FX Settings"
+            >
+              <AdjustmentsHorizontalIcon className="w-5 h-5" />
+            </button>
+
+            <button
+              onClick={() => setActivePanel(activePanel === 'advanced' ? null : 'advanced')}
+              className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${
+                activePanel === 'advanced'
+                  ? 'bg-amber-500/20 border border-amber-500/30 text-amber-400'
+                  : 'bg-white/5 hover:bg-white/10 text-white/50 hover:text-white'
+              }`}
+              title="Advanced Settings"
+            >
+              <Cog6ToothIcon className="w-5 h-5" />
+            </button>
+
+            <div className="h-px w-6 mx-auto bg-white/10 my-2"></div>
+
+            <button
+              onClick={() => setTimelineOpen(!timelineOpen)}
+              className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${
+                timelineOpen
+                  ? 'bg-blue-500/20 border border-blue-500/30 text-blue-400'
+                  : 'bg-white/5 hover:bg-white/10 text-white/50 hover:text-white'
+              }`}
+              title="Timeline"
+            >
+              <ListBulletIcon className="w-5 h-5" />
+            </button>
+          </div>
+
+          {/* Chat Toggle */}
+          <button
+            onClick={() => setChatOpen(!chatOpen)}
+            className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${
+              chatOpen
+                ? 'bg-gradient-to-br from-amber-500 to-blue-500 text-white shadow-lg shadow-amber-500/30'
+                : 'bg-white/5 hover:bg-white/10 text-white/50 hover:text-white'
+            }`}
+            title="AI Chat"
+          >
+            <ChatBubbleLeftRightIcon className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Main Content Area */}
+        <div className="flex-1 flex flex-col">
+          {/* Top Bar */}
+          <header className="h-14 bg-black/30 backdrop-blur-xl border-b border-white/5 flex items-center justify-between px-6">
+            <div className="flex items-center gap-4">
+              <h1 className="text-xl font-bold">
+                <span className="bg-gradient-to-r from-amber-400 via-amber-300 to-blue-400 bg-clip-text text-transparent">
+                  Lyrical Flow
+                </span>
+              </h1>
+              {state.metadata && (
+                <span className="text-sm text-white/50">
+                  {state.metadata.title} â€¢ {state.metadata.artist}
+                </span>
+              )}
+            </div>
+
+            <div className="flex items-center gap-3">
+              {/* Aspect Ratio */}
+              <select
+                value={state.aspectRatio}
+                onChange={(e) =>
+                  setState((prev) => ({ ...prev, aspectRatio: e.target.value as AspectRatio }))
+                }
+                className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white/70 focus:outline-none focus:border-amber-500/50 cursor-pointer"
+              >
+                <option value="16:9">16:9</option>
+                <option value="9:16">9:16</option>
+                <option value="1:1">1:1</option>
+              </select>
+
+              <button className="px-5 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black font-semibold text-sm rounded-lg transition-all shadow-lg shadow-amber-500/20 hover:shadow-amber-500/40">
+                Export
+              </button>
+            </div>
+          </header>
+
+          {/* Canvas Area */}
+          <div
+            className={`flex-1 flex items-center justify-center p-8 transition-all ${timelineOpen ? 'pb-4' : ''}`}
+          >
+            <div
+              className={`aspect-video w-full max-w-5xl bg-black/60 backdrop-blur-sm rounded-2xl border border-white/10 flex items-center justify-center relative overflow-hidden shadow-2xl ${timelineOpen ? 'max-h-[calc(100%-320px)]' : ''}`}
+            >
+              {state.audioUrl ? (
+                <Visualizer
+                  ref={canvasRef}
+                  audioUrl={state.audioUrl}
+                  lyrics={state.lyrics}
+                  currentTime={state.currentTime}
+                  isPlaying={state.isPlaying}
+                  style={state.currentStyle}
+                  backgroundAsset={state.backgroundAsset}
+                  aspectRatio={state.aspectRatio}
+                  settings={state.visualSettings}
+                  onTimeUpdate={(t) => setState((prev) => ({ ...prev, currentTime: t }))}
+                  setAudioElement={(el) => (audioElementRef.current = el)}
+                  setMediaStreamDestination={(d) => (mediaStreamDestRef.current = d)}
+                  editMode={editMode}
+                  activeKeyframeIndex={activeKeyframeIndex}
+                  selectedLyricIndex={
+                    selectedLyricIndices.size === 1 ? Array.from(selectedLyricIndices)[0] : null
+                  }
+                  onKeyframeUpdate={onKeyframePositionUpdate}
+                />
+              ) : (
+                <>
+                  {/* Empty State */}
+                  <div className="absolute inset-0 bg-gradient-to-br from-amber-500/5 via-transparent to-blue-500/5"></div>
+                  <div
+                    className="absolute inset-0 opacity-20"
+                    style={{
+                      backgroundImage: `radial-gradient(circle at 1px 1px, rgba(255,255,255,0.1) 1px, transparent 0)`,
+                      backgroundSize: '40px 40px',
+                    }}
+                  ></div>
+
+                  <div className="text-center z-10 p-8">
+                    <div className="w-24 h-24 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-amber-500/20 to-blue-500/20 border-2 border-dashed border-amber-500/40 flex items-center justify-center hover:border-amber-400 hover:bg-amber-500/10 transition-all cursor-pointer">
+                      <ArrowUpTrayIcon className="w-8 h-8 text-amber-400/70" />
+                    </div>
+                    <p className="text-xl font-medium text-white/90 mb-2">
+                      Upload your audio to begin
+                    </p>
+                    <p className="text-sm text-white/40 mb-6">
+                      or describe your vision in the AI chat
+                    </p>
+                  </div>
+
+                  {/* Corner Decorations */}
+                  <div className="absolute top-4 left-4 w-8 h-8 border-l-2 border-t-2 border-amber-500/30 rounded-tl-lg"></div>
+                  <div className="absolute top-4 right-4 w-8 h-8 border-r-2 border-t-2 border-blue-500/30 rounded-tr-lg"></div>
+                  <div className="absolute bottom-4 left-4 w-8 h-8 border-l-2 border-b-2 border-blue-500/30 rounded-bl-lg"></div>
+                  <div className="absolute bottom-4 right-4 w-8 h-8 border-r-2 border-b-2 border-amber-500/30 rounded-br-lg"></div>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Bottom Playback Bar */}
+          {!timelineOpen && (
+            <div className="h-20 bg-black/30 backdrop-blur-xl border-t border-white/5 flex items-center justify-center px-8">
+              <div className="flex items-center gap-6 bg-black/40 backdrop-blur rounded-2xl px-6 py-3 border border-white/10">
+                <button
+                  onClick={() => {
+                    if (audioElementRef.current) audioElementRef.current.currentTime = 0;
+                  }}
+                  className="text-white/50 hover:text-white transition-colors"
+                >
+                  <BackwardIcon className="w-5 h-5" />
+                </button>
+
+                <span className="text-sm text-white/50 font-mono w-12">
+                  {new Date(state.currentTime * 1000).toISOString().substr(14, 5)}
+                </span>
+
+                <button
+                  onClick={togglePlay}
+                  className="w-14 h-14 rounded-full bg-gradient-to-r from-amber-500 to-blue-500 flex items-center justify-center hover:scale-105 transition-transform shadow-lg shadow-amber-500/30"
+                >
+                  {state.isPlaying ? (
+                    <PauseIcon className="w-6 h-6 text-white" />
+                  ) : (
+                    <PlayIcon className="w-6 h-6 text-white ml-1" />
+                  )}
+                </button>
+
+                <div className="w-80">
+                  <input
+                    type="range"
+                    min="0"
+                    max={audioElementRef.current?.duration || 100}
+                    value={state.currentTime}
+                    onChange={(e) => {
+                      const t = parseFloat(e.target.value);
+                      if (audioElementRef.current) audioElementRef.current.currentTime = t;
+                      setState((prev) => ({ ...prev, currentTime: t }));
+                    }}
+                    className="w-full h-2 bg-white/10 rounded-full appearance-none cursor-pointer accent-amber-500"
+                  />
+                </div>
+
+                <span className="text-sm text-white/50 font-mono w-12">
+                  {audioElementRef.current?.duration
+                    ? new Date(audioElementRef.current.duration * 1000).toISOString().substr(14, 5)
+                    : '00:00'}
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ============================================ */}
+      {/* SLIDE-OUT PANELS */}
+      {/* ============================================ */}
+
+      {/* Styles Panel */}
+      <SlideOutPanel
+        isOpen={activePanel === 'styles'}
+        onClose={() => setActivePanel(null)}
+        title="Visual Styles"
+      >
+        <div className="space-y-6">
+          {/* Visual Style */}
+          <div>
+            <h3 className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-3">
+              Style
+            </h3>
+            <div className="grid grid-cols-2 gap-2">
+              {Object.values(VisualStyle).map((style) => (
+                <button
+                  key={style}
+                  onClick={() => setState((prev) => ({ ...prev, currentStyle: style }))}
+                  className={`p-3 text-xs font-medium rounded-lg border transition-all ${
+                    state.currentStyle === style
+                      ? 'border-amber-500 bg-amber-500/10 text-amber-200 shadow-[0_0_15px_rgba(245,158,11,0.2)]'
+                      : 'border-white/10 bg-white/5 text-white/60 hover:bg-white/10 hover:text-white'
+                  }`}
+                >
+                  {style.replace('_', ' ')}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Color Palette */}
+          <div>
+            <h3 className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-3">
+              Color Palette
+            </h3>
+            <div className="flex flex-wrap gap-2">
+              {(['neon', 'sunset', 'ocean', 'matrix', 'fire'] as ColorPalette[]).map((p) => (
+                <button
+                  key={p}
+                  onClick={() => updateVisualSetting('palette', p)}
+                  className={`px-3 py-2 text-xs rounded-lg border capitalize transition-all ${
+                    state.visualSettings.palette === p
+                      ? 'bg-amber-500/20 border-amber-500 text-amber-200'
+                      : 'bg-white/5 border-white/10 text-white/60 hover:bg-white/10'
+                  }`}
+                >
+                  {p}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Background */}
+          <div>
+            <h3 className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-3">
+              Background
+            </h3>
+            {state.backgroundAsset ? (
+              <div className="space-y-2">
+                <div className="aspect-video rounded-lg overflow-hidden border border-white/10">
+                  {state.backgroundAsset.type === 'image' ? (
+                    <img
+                      src={state.backgroundAsset.url}
+                      alt="Background"
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <video
+                      src={state.backgroundAsset.url}
+                      className="w-full h-full object-cover"
+                      muted
+                      loop
+                      autoPlay
+                    />
+                  )}
+                </div>
+                <p className="text-[10px] text-white/40 truncate">{state.backgroundAsset.prompt}</p>
+                <button
+                  onClick={() => setState((prev) => ({ ...prev, backgroundAsset: null }))}
+                  className="w-full py-2 text-xs text-red-400 border border-red-500/30 rounded-lg hover:bg-red-500/10 transition-colors"
+                >
+                  Remove Background
+                </button>
+              </div>
+            ) : (
+              <p className="text-xs text-white/40">
+                No background set. Use AI chat to generate one or upload an image.
+              </p>
+            )}
+          </div>
+        </div>
+      </SlideOutPanel>
+
+      {/* Effects Panel */}
+      <SlideOutPanel
+        isOpen={activePanel === 'effects'}
+        onClose={() => setActivePanel(null)}
+        title="FX Settings"
+      >
+        <div className="space-y-6">
+          {/* Text Styling */}
+          <div>
+            <h3 className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-3">
+              Text Styling
+            </h3>
+
+            <div className="space-y-4">
+              <div>
+                <label className="text-xs text-white/40 block mb-2">Font Family</label>
+                <select
+                  value={state.visualSettings.fontFamily}
+                  onChange={(e) => updateVisualSetting('fontFamily', e.target.value as FontFamily)}
+                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-500/50"
+                >
+                  {fonts.map((font) => (
+                    <option key={font} value={font} style={{ fontFamily: font }}>
+                      {font}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs text-white/40 block mb-2">Entry Animation</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {(
+                    [
+                      'NONE',
+                      'TYPEWRITER',
+                      'FADE_CHARS',
+                      'KINETIC',
+                      'BOUNCE',
+                    ] as TextAnimationStyle[]
+                  ).map((anim) => (
+                    <button
+                      key={anim}
+                      onClick={() => updateVisualSetting('textAnimation', anim)}
+                      className={`px-3 py-2 text-xs rounded-lg border transition-all ${
+                        state.visualSettings.textAnimation === anim
+                          ? 'bg-amber-500/20 border-amber-500 text-amber-200'
+                          : 'bg-white/5 border-white/10 text-white/60 hover:bg-white/10'
+                      }`}
+                    >
+                      {anim.replace('_', ' ')}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Sliders */}
+          <div>
+            <h3 className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-3">
+              Animation
+            </h3>
+
+            <div className="space-y-4">
+              <div>
+                <div className="flex justify-between text-xs text-white/40 mb-2">
+                  <span>Animation Speed</span>
+                  <span className="text-amber-400">{state.visualSettings.particleSpeed}x</span>
+                </div>
+                <input
+                  type="range"
+                  min="0.1"
+                  max="3"
+                  step="0.1"
+                  value={state.visualSettings.particleSpeed}
+                  onChange={(e) => updateVisualSetting('particleSpeed', parseFloat(e.target.value))}
+                  className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                />
+              </div>
+
+              <div>
+                <div className="flex justify-between text-xs text-white/40 mb-2">
+                  <span>Reactivity Intensity</span>
+                  <span className="text-amber-400">{state.visualSettings.intensity}x</span>
+                </div>
+                <input
+                  type="range"
+                  min="0.5"
+                  max="3"
+                  step="0.1"
+                  value={state.visualSettings.intensity}
+                  onChange={(e) => updateVisualSetting('intensity', parseFloat(e.target.value))}
+                  className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Toggles */}
+          <div>
+            <h3 className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-3">
+              Effects
+            </h3>
+
+            <div className="space-y-3">
+              {/* Camera Shake */}
+              <div className="p-3 bg-white/5 rounded-lg border border-white/10">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm text-white/80">Bass Camera Shake</span>
+                  <button
+                    onClick={() =>
+                      updateVisualSetting('cameraShake', !state.visualSettings.cameraShake)
+                    }
+                    className={`w-10 h-5 rounded-full p-0.5 transition-colors ${state.visualSettings.cameraShake ? 'bg-amber-500' : 'bg-white/20'}`}
+                  >
+                    <div
+                      className={`w-4 h-4 bg-white rounded-full shadow-md transform transition-transform ${state.visualSettings.cameraShake ? 'translate-x-5' : 'translate-x-0'}`}
+                    ></div>
+                  </button>
+                </div>
+                {state.visualSettings.cameraShake && (
+                  <div>
+                    <div className="flex justify-between text-[10px] text-white/40 mb-1">
+                      <span>Intensity</span>
+                      <span>{state.visualSettings.cameraShakeIntensity.toFixed(1)}x</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="5"
+                      step="0.1"
+                      value={state.visualSettings.cameraShakeIntensity}
+                      onChange={(e) =>
+                        updateVisualSetting('cameraShakeIntensity', parseFloat(e.target.value))
+                      }
+                      className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Dynamic BG */}
+              <div className="flex items-center justify-between p-3 bg-white/5 rounded-lg border border-white/10">
+                <span className="text-sm text-white/80">Dynamic Background Pulse</span>
+                <button
+                  onClick={() =>
+                    updateVisualSetting(
+                      'dynamicBackgroundOpacity',
+                      !state.visualSettings.dynamicBackgroundOpacity
+                    )
+                  }
+                  className={`w-10 h-5 rounded-full p-0.5 transition-colors ${state.visualSettings.dynamicBackgroundOpacity ? 'bg-amber-500' : 'bg-white/20'}`}
+                >
+                  <div
+                    className={`w-4 h-4 bg-white rounded-full shadow-md transform transition-transform ${state.visualSettings.dynamicBackgroundOpacity ? 'translate-x-5' : 'translate-x-0'}`}
+                  ></div>
+                </button>
+              </div>
+
+              {/* Particle Trails */}
+              <div className="flex items-center justify-between p-3 bg-white/5 rounded-lg border border-white/10">
+                <span className="text-sm text-white/80">Particle Trails</span>
+                <button
+                  onClick={() =>
+                    updateVisualSetting('trailsEnabled', !state.visualSettings.trailsEnabled)
+                  }
+                  className={`w-10 h-5 rounded-full p-0.5 transition-colors ${state.visualSettings.trailsEnabled ? 'bg-amber-500' : 'bg-white/20'}`}
+                >
+                  <div
+                    className={`w-4 h-4 bg-white rounded-full shadow-md transform transition-transform ${state.visualSettings.trailsEnabled ? 'translate-x-5' : 'translate-x-0'}`}
+                  ></div>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </SlideOutPanel>
+
+      {/* Advanced Panel */}
+      <SlideOutPanel
+        isOpen={activePanel === 'advanced'}
+        onClose={() => setActivePanel(null)}
+        title="Advanced Settings"
+      >
+        <div className="space-y-6">
+          {/* Frequency Mapping */}
+          <div>
+            <h3 className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-3">
+              Frequency Mapping
+            </h3>
+            <p className="text-[10px] text-white/30 mb-3">
+              Control which audio frequencies drive different visual effects
+            </p>
+
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-white/40 block mb-1">Pulse (Scale/Size)</label>
+                <select
+                  value={state.visualSettings.frequencyMapping.pulse}
+                  onChange={(e) => updateFrequencyMapping('pulse', e.target.value as FrequencyBand)}
+                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-500/50"
+                >
+                  {freqBands.map((b) => (
+                    <option key={b} value={b}>
+                      {b}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs text-white/40 block mb-1">Motion (Movement)</label>
+                <select
+                  value={state.visualSettings.frequencyMapping.motion}
+                  onChange={(e) =>
+                    updateFrequencyMapping('motion', e.target.value as FrequencyBand)
+                  }
+                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-500/50"
+                >
+                  {freqBands.map((b) => (
+                    <option key={b} value={b}>
+                      {b}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs text-white/40 block mb-1">Color (Glow/Shift)</label>
+                <select
+                  value={state.visualSettings.frequencyMapping.color}
+                  onChange={(e) => updateFrequencyMapping('color', e.target.value as FrequencyBand)}
+                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-500/50"
+                >
+                  {freqBands.map((b) => (
+                    <option key={b} value={b}>
+                      {b}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {/* Blend Mode */}
+          <div>
+            <h3 className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-3">
+              Background Blend Mode
+            </h3>
+            <select
+              value={state.visualSettings.backgroundBlendMode}
+              onChange={(e) =>
+                updateVisualSetting('backgroundBlendMode', e.target.value as BlendMode)
+              }
+              className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-500/50"
+            >
+              {blendModes.map((mode) => (
+                <option key={mode} value={mode}>
+                  {mode}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Kinetic Settings */}
+          <div>
+            <h3 className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-3">
+              Kinetic Text
+            </h3>
+
+            <div className="space-y-3">
+              <div>
+                <div className="flex justify-between text-xs text-white/40 mb-1">
+                  <span>Rotation Range</span>
+                  <span>{state.visualSettings.kineticRotationRange}</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="2"
+                  step="0.1"
+                  value={state.visualSettings.kineticRotationRange}
+                  onChange={(e) =>
+                    updateVisualSetting('kineticRotationRange', parseFloat(e.target.value))
+                  }
+                  className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                />
+              </div>
+
+              <div>
+                <div className="flex justify-between text-xs text-white/40 mb-1">
+                  <span>Offset Range (px)</span>
+                  <span>{state.visualSettings.kineticOffsetRange}</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="5"
+                  value={state.visualSettings.kineticOffsetRange}
+                  onChange={(e) =>
+                    updateVisualSetting('kineticOffsetRange', parseFloat(e.target.value))
+                  }
+                  className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                />
+              </div>
+
+              <div>
+                <div className="flex justify-between text-xs text-white/40 mb-1">
+                  <span>Text Stagger (s)</span>
+                  <span>{state.visualSettings.textStagger}</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="0.2"
+                  step="0.01"
+                  value={state.visualSettings.textStagger}
+                  onChange={(e) => updateVisualSetting('textStagger', parseFloat(e.target.value))}
+                  className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                />
+              </div>
+
+              <div>
+                <div className="flex justify-between text-xs text-white/40 mb-1">
+                  <span>Reveal Duration (s)</span>
+                  <span>{state.visualSettings.textRevealDuration}</span>
+                </div>
+                <input
+                  type="range"
+                  min="0.1"
+                  max="1"
+                  step="0.05"
+                  value={state.visualSettings.textRevealDuration}
+                  onChange={(e) =>
+                    updateVisualSetting('textRevealDuration', parseFloat(e.target.value))
+                  }
+                  className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                />
+              </div>
+
+              <div>
+                <div className="flex justify-between text-xs text-white/40 mb-1">
+                  <span>Glitch Frequency</span>
+                  <span>{state.visualSettings.glitchFrequency}</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.1"
+                  value={state.visualSettings.glitchFrequency}
+                  onChange={(e) =>
+                    updateVisualSetting('glitchFrequency', parseFloat(e.target.value))
+                  }
+                  className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      </SlideOutPanel>
+
+      {/* ============================================ */}
+      {/* TIMELINE PANEL (Bottom) */}
+      {/* ============================================ */}
+      <TimelinePanel
+        isOpen={timelineOpen}
+        onClose={() => setTimelineOpen(false)}
+        lyrics={state.lyrics}
+        currentTime={state.currentTime}
+        editMode={editMode}
+        setEditMode={setEditMode}
+        selectedLyricIndices={selectedLyricIndices}
+        toggleLyricSelection={toggleLyricSelection}
+        selectAllLyrics={selectAllLyrics}
+        updateLyric={updateLyric}
+        applyMotionPreset={applyMotionPreset}
+        updateKeyframe={updateKeyframe}
+        addKeyframe={addKeyframe}
+        removeKeyframe={removeKeyframe}
+        activeKeyframeIndex={activeKeyframeIndex}
+        setActiveKeyframeIndex={setActiveKeyframeIndex}
+        audioBuffer={state.audioBuffer}
+        onSeek={(t) => {
+          if (audioElementRef.current) audioElementRef.current.currentTime = t;
+          setState((prev) => ({ ...prev, currentTime: t }));
+        }}
+        isPlaying={state.isPlaying}
+        setIsPlaying={(v) => setState((prev) => ({ ...prev, isPlaying: v }))}
+        bulkTimeShift={bulkTimeShift}
+        setBulkTimeShift={setBulkTimeShift}
+        applyBulkTimeShift={applyBulkTimeShift}
+        applyTextTransform={applyTextTransform}
+        applyOverride={applyOverride}
+      />
+
+      {/* ============================================ */}
+      {/* FLOATING DRAGGABLE CHAT */}
+      {/* ============================================ */}
+      <DraggableChat
+        isOpen={chatOpen}
+        onClose={() => setChatOpen(false)}
+        isMinimized={chatMinimized}
+        onToggleMinimize={() => setChatMinimized(!chatMinimized)}
+        messages={chatMessages}
+        onSendMessage={handleSendMessage}
+        isProcessing={isProcessing}
+        onFileUpload={handleFileUpload}
+      />
+
+      {/* Global Processing Overlay */}
+      {isProcessing && !chatOpen && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center">
+          <div className="bg-black/80 rounded-2xl p-6 border border-amber-500/20 flex items-center gap-4">
+            <div className="w-8 h-8 border-2 border-amber-500 border-t-transparent rounded-full animate-spin"></div>
+            <span className="text-white">Processing...</span>
+          </div>
+        </div>
+      )}
+
+      {/* Custom Scrollbar Styles */}
+      <style>{`
+        .custom-scrollbar::-webkit-scrollbar {
+          width: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+          background: rgba(255,255,255,0.05);
+          border-radius: 3px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+          background: rgba(255,255,255,0.2);
+          border-radius: 3px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+          background: rgba(255,255,255,0.3);
+        }
+      `}</style>
+    </div>
+  );
+};
+
+export default App;

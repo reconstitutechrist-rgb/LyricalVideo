@@ -1,0 +1,163 @@
+/* AI Control Highlight Animations */
+
+@keyframes ai-highlight-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+    box-shadow:
+      0 0 20px rgba(0, 212, 255, 0.5),
+      inset 0 0 10px rgba(0, 212, 255, 0.2);
+  }
+  50% {
+    opacity: 0.85;
+    transform: scale(1.02);
+    box-shadow:
+      0 0 30px rgba(0, 212, 255, 0.7),
+      inset 0 0 15px rgba(0, 212, 255, 0.3);
+  }
+}
+
+@keyframes ai-highlight-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 5px rgba(0, 212, 255, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 20px rgba(0, 212, 255, 0.6);
+  }
+}
+
+.ai-highlight-pulse {
+  animation: ai-highlight-pulse 1.5s ease-in-out infinite;
+}
+
+.ai-control-highlighted {
+  position: relative;
+  z-index: 10;
+}
+
+/* Pseudo-element glow effect for highlighted controls */
+.ai-control-highlighted::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: inherit;
+  border: 2px solid rgba(0, 212, 255, 0.4);
+  pointer-events: none;
+  animation: ai-highlight-glow 1.5s ease-in-out infinite;
+}
+
+/* Ensure highlighted elements are visible above others */
+[data-ai-highlighted='true'] {
+  z-index: 100 !important;
+}
+
+/* Highlight overlay container */
+#ai-control-highlight-overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* Individual highlight element */
+.ai-control-highlight {
+  position: fixed;
+  border-radius: 8px;
+  border: 2px solid #00d4ff;
+  box-shadow:
+    0 0 20px rgba(0, 212, 255, 0.5),
+    inset 0 0 10px rgba(0, 212, 255, 0.2);
+  pointer-events: none;
+  transition: all 0.2s ease-out;
+}
+
+/* Highlight label */
+.ai-control-highlight-label {
+  position: absolute;
+  top: -28px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(15, 23, 42, 0.95);
+  color: #00d4ff;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 4px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(0, 212, 255, 0.3);
+}
+
+/* Confirmation bubble styles */
+.ai-control-confirmation {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.ai-control-confirmation-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: 8px;
+  transition: all 0.2s;
+  cursor: pointer;
+}
+
+.ai-control-confirmation-btn--apply {
+  background: linear-gradient(to right, #0891b2, #2563eb);
+  color: white;
+  border: none;
+}
+
+.ai-control-confirmation-btn--apply:hover {
+  background: linear-gradient(to right, #06b6d4, #3b82f6);
+}
+
+.ai-control-confirmation-btn--show {
+  background: rgba(55, 65, 81, 0.8);
+  color: #e5e7eb;
+  border: 1px solid rgba(75, 85, 99, 0.8);
+}
+
+.ai-control-confirmation-btn--show:hover {
+  background: rgba(75, 85, 99, 0.8);
+}
+
+/* Section scope indicator */
+.ai-section-scope-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 500;
+  border-radius: 9999px;
+  background: rgba(0, 212, 255, 0.1);
+  color: #00d4ff;
+  border: 1px solid rgba(0, 212, 255, 0.2);
+}
+
+/* Section override badge */
+.ai-section-override-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  font-size: 9px;
+  font-weight: 500;
+  border-radius: 4px;
+  background: rgba(139, 92, 246, 0.2);
+  color: #a78bfa;
+  border: 1px solid rgba(139, 92, 246, 0.3);
+}
+
+.ai-section-override-badge--active {
+  background: rgba(139, 92, 246, 0.3);
+  color: #c4b5fd;
+}
