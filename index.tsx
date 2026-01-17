@@ -1,6 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import App from './App';
+// import App from './App'; // Original layout
+import App from './AppWithNewLayout'; // New modernized layout
 import { ErrorBoundary } from './src/components/ErrorBoundary';
 import { ToastContainer } from './src/components/Toast';
 
