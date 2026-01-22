@@ -66,6 +66,7 @@ import {
   detectMusicGenre,
   modifyVideoPlan,
   syncLyricsWithPrecision,
+  transcribeAudioOnly,
 } from './services/geminiService';
 import * as aiOrchestrator from './services/aiOrchestrator';
 import { aiControlService, AIControlCommand } from './src/systems/aiControl';
@@ -193,7 +194,8 @@ const AppWithNewLayout = () => {
     userProvidedLyrics: '',
     userCreativeVision: '',
     metadata: null,
-    currentStyle: VisualStyle.NEON_PULSE,
+    currentStyle: null, // No style until plan is applied
+    planApplied: false, // Set to true when user applies the video plan
     backgroundAsset: null,
     currentTime: 0,
     isPlaying: false,
@@ -204,8 +206,8 @@ const AppWithNewLayout = () => {
       speedX: 1.0,
       speedY: 1.0,
       intensity: 1.0,
-      palette: 'neon',
-      colorPalette: 'neon',
+      palette: null, // No palette until plan is applied
+      colorPalette: null, // No palette until plan is applied
       dynamicBackgroundOpacity: false,
       dynamicBackgroundPulse: false,
       textAnimation: 'KINETIC',
@@ -336,6 +338,9 @@ const AppWithNewLayout = () => {
   const [chatMinimized, setChatMinimized] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingStatus, setProcessingStatus] = useState('');
+  // New state for transcription workflow
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const [editableLyrics, setEditableLyrics] = useState('');
   const [editMode, setEditMode] = useState(false);
   const [selectedLyricIndices, setSelectedLyricIndices] = useState<Set<number>>(new Set());
   const [activeKeyframeIndex, setActiveKeyframeIndex] = useState<number | null>(null);
@@ -1309,41 +1314,75 @@ const AppWithNewLayout = () => {
     setIsGeneratingPlan,
   ]);
 
-  const handleApplyPlan = useCallback(() => {
-    if (!videoPlan) return;
+  const handleApplyPlan = useCallback(async () => {
+    if (!videoPlan || !state.audioFile) return;
 
-    setState((prev) => ({
-      ...prev,
-      currentStyle: videoPlan.visualStyle.style,
-      visualSettings: {
-        ...prev.visualSettings,
-        textAnimation: videoPlan.visualStyle.textAnimation,
-        fontFamily: videoPlan.visualStyle.fontFamily,
-        backgroundBlendMode: videoPlan.visualStyle.blendMode,
-        intensity: videoPlan.visualStyle.intensity,
-        particleSpeed: videoPlan.visualStyle.particleSpeed,
-      },
-      backgroundEffects: videoPlan.backgroundEffect
-        ? [{ effectId: videoPlan.backgroundEffect.effectId, parameters: {}, enabled: true }]
-        : [],
-      lyricEffects: videoPlan.lyricEffects.map((e) => ({
-        effectId: e.effectId,
-        parameters: {},
-        enabled: true,
-      })),
-    }));
+    // Mark as generating assets
+    setIsGeneratingPlan(true);
+    setProcessingStatus('Generating assets from approved plan...');
 
-    setVideoPlan({ ...videoPlan, status: 'applied' });
+    try {
+      // Generate assets NOW (after user approval)
+      const planWithAssets = await aiOrchestrator.generatePlanAssets(
+        videoPlan,
+        state.audioFile,
+        state.lyrics,
+        state.aspectRatio,
+        setProcessingStatus
+      );
 
-    setChatMessages((prev) => [
-      ...prev,
-      {
-        role: 'model',
-        text: 'Video plan applied! Your settings have been updated.',
-        timestamp: new Date(),
-      },
-    ]);
-  }, [videoPlan, setVideoPlan]);
+      // Apply visual settings
+      setState((prev) => ({
+        ...prev,
+        currentStyle: planWithAssets.visualStyle.style,
+        visualSettings: {
+          ...prev.visualSettings,
+          textAnimation: planWithAssets.visualStyle.textAnimation,
+          fontFamily: planWithAssets.visualStyle.fontFamily,
+          backgroundBlendMode: planWithAssets.visualStyle.blendMode,
+          intensity: planWithAssets.visualStyle.intensity,
+          particleSpeed: planWithAssets.visualStyle.particleSpeed,
+        },
+        backgroundEffects: planWithAssets.backgroundEffect
+          ? [
+              {
+                effectId: planWithAssets.backgroundEffect.effectId,
+                parameters: planWithAssets.backgroundEffect.parameters || {},
+                enabled: true,
+              },
+            ]
+          : [],
+        lyricEffects: planWithAssets.lyricEffects.map((e) => ({
+          effectId: e.effectId,
+          parameters: e.parameters || {},
+          enabled: true,
+        })),
+        // Apply the generated background asset
+        backgroundAsset: planWithAssets.hybridVisuals?.sharedBackground || null,
+        // Mark that plan has been applied - enables canvas rendering
+        planApplied: true,
+      }));
+
+      setVideoPlan(planWithAssets);
+
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          role: 'model',
+          text: 'Video plan applied! Background and visuals have been generated.',
+          timestamp: new Date(),
+        },
+      ]);
+
+      toast.success('Plan Applied', 'Assets generated successfully!');
+    } catch (err) {
+      console.error('Failed to generate assets:', err);
+      toast.error('Asset Generation Failed', 'Could not generate backgrounds. Please try again.');
+    } finally {
+      setIsGeneratingPlan(false);
+      setProcessingStatus('');
+    }
+  }, [videoPlan, state.audioFile, state.lyrics, state.aspectRatio, setVideoPlan]);
 
   const handleModifyPlanViaChat = useCallback(
     async (instruction: string) => {
@@ -1364,7 +1403,6 @@ const AppWithNewLayout = () => {
         }
       } catch (err) {
         if (!isAbortError(err)) {
-          toast.error('Plan Modification Failed', 'Please try again');
           setChatMessages((prev) => [
             ...prev,
             {
@@ -1373,6 +1411,8 @@ const AppWithNewLayout = () => {
               timestamp: new Date(),
             },
           ]);
+          // Re-throw so the caller can handle it
+          throw err;
         }
       }
     },
@@ -2064,7 +2104,7 @@ const AppWithNewLayout = () => {
             className={`flex-1 flex items-center justify-center p-8 transition-all ${timelineOpen || showWaveformEditor ? 'pb-4' : ''}`}
           >
             <div
-              className={`aspect-video w-full max-w-5xl bg-black/60 backdrop-blur-sm rounded-2xl border border-white/10 flex items-center justify-center relative overflow-hidden shadow-2xl ${timelineOpen || showWaveformEditor ? 'max-h-[calc(100%-320px)]' : ''}`}
+              className={`aspect-video w-full max-w-5xl bg-black rounded-2xl border border-white/10 flex items-center justify-center relative overflow-hidden shadow-2xl ${timelineOpen || showWaveformEditor ? 'max-h-[calc(100%-320px)]' : ''}`}
             >
               {/* VISUALIZER */}
               <Visualizer
@@ -2090,6 +2130,7 @@ const AppWithNewLayout = () => {
                 backgroundEffects={state.backgroundEffects}
                 activeGenre={state.genreOverride ?? state.detectedGenre}
                 exportResolution={exportSettings.resolution}
+                planApplied={state.planApplied}
               />
 
               {/* Playback Controls Overlay */}
@@ -2167,9 +2208,9 @@ const AppWithNewLayout = () => {
                 </div>
               )}
 
-              {/* Empty state */}
+              {/* Empty state - z-20 to show above canvas */}
               {!state.audioUrl && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/40">
+                <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/40">
                   <MusicalNoteIcon className="w-16 h-16 text-white/20 mb-4" />
                   <p className="text-white/40 text-lg">Upload audio to get started</p>
                   <button
@@ -3005,11 +3046,37 @@ const AppWithNewLayout = () => {
               setProcessingStatus('');
             }
           }}
-          onLyricsSubmit={(lyrics) => {
-            setState((prev) => ({ ...prev, userProvidedLyrics: lyrics }));
+          currentLyrics={editableLyrics}
+          onLyricsChange={(lyrics) => setEditableLyrics(lyrics)}
+          onTranscribe={async () => {
+            if (!state.audioFile) return;
+            setIsTranscribing(true);
+            setProcessingStatus('Transcribing lyrics from audio...');
+            try {
+              const text = await transcribeAudioOnly(state.audioFile);
+              setEditableLyrics(text);
+              toast.success('Transcription Complete', 'Review and edit the lyrics if needed');
+            } catch (err) {
+              console.error('Transcription failed:', err);
+              toast.error('Transcription Failed', 'Please try again or paste lyrics manually');
+            } finally {
+              setIsTranscribing(false);
+              setProcessingStatus('');
+            }
+          }}
+          isTranscribing={isTranscribing}
+          onLyricsContinue={() => {
+            // Save editable lyrics to state when user continues
+            setState((prev) => ({ ...prev, userProvidedLyrics: editableLyrics }));
           }}
           onVisionSubmit={async (vision) => {
-            setState((prev) => ({ ...prev, userCreativeVision: vision }));
+            // Save the editable lyrics to state and use them for analysis
+            const userLyrics = editableLyrics;
+            setState((prev) => ({
+              ...prev,
+              userCreativeVision: vision,
+              userProvidedLyrics: userLyrics,
+            }));
             const file = state.audioFile;
             if (!file) return;
 
@@ -3017,10 +3084,7 @@ const AppWithNewLayout = () => {
             setProcessingStatus('Analyzing lyrics...');
 
             try {
-              const { lyrics, metadata } = await analyzeAudioAndGetLyrics(
-                file,
-                state.userProvidedLyrics
-              );
+              const { lyrics, metadata } = await analyzeAudioAndGetLyrics(file, userLyrics);
               setState((prev) => ({
                 ...prev,
                 lyrics,
@@ -3040,19 +3104,13 @@ const AppWithNewLayout = () => {
               setProcessingStatus('Generating video plan...');
 
               aiOrchestrator
-                .generateFullVideoPlan(
-                  file,
-                  state.userProvidedLyrics,
-                  vision,
-                  state.aspectRatio,
-                  (status) => {
-                    setProcessingStatus(status);
-                    setChatMessages((prev) => [
-                      ...prev,
-                      { role: 'model', text: status, timestamp: new Date() },
-                    ]);
-                  }
-                )
+                .generateFullVideoPlan(file, userLyrics, vision, state.aspectRatio, (status) => {
+                  setProcessingStatus(status);
+                  setChatMessages((prev) => [
+                    ...prev,
+                    { role: 'model', text: status, timestamp: new Date() },
+                  ]);
+                })
                 .then((plan) => {
                   setVideoPlan(plan);
                   setShowPlanPanel(true);
@@ -3070,7 +3128,14 @@ const AppWithNewLayout = () => {
                   ]);
                 })
                 .catch((_err) => {
-                  toast.error('Plan Generation Failed', 'Falling back to genre detection');
+                  // Check if it was a timeout error
+                  const isTimeout = _err?.message?.includes('timed out');
+                  toast.error(
+                    isTimeout ? 'Plan Generation Timed Out' : 'Plan Generation Failed',
+                    isTimeout
+                      ? 'The AI took too long. Falling back to genre detection.'
+                      : 'Falling back to genre detection'
+                  );
                   detectMusicGenre(file)
                     .then((result) => {
                       setState((prev) => ({

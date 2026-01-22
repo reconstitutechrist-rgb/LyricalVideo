@@ -248,8 +248,8 @@ export interface VisualSettings {
   speedX: number;
   speedY: number;
   intensity: number;
-  palette: ColorPalette;
-  colorPalette: ColorPalette; // UI-friendly alias for palette
+  palette: ColorPalette | null; // null until plan is applied
+  colorPalette: ColorPalette | null; // UI-friendly alias for palette
   dynamicBackgroundOpacity: boolean;
   dynamicBackgroundPulse: boolean; // UI-friendly alias for dynamicBackgroundOpacity
   textAnimation: TextAnimationStyle;
@@ -283,7 +283,8 @@ export interface AppState {
   userProvidedLyrics: string;
   userCreativeVision: string; // User's creative vision for the video
   metadata: SongMetadata | null;
-  currentStyle: VisualStyle;
+  currentStyle: VisualStyle | null; // null until plan is applied
+  planApplied: boolean; // true after user approves and applies the video plan
   backgroundAsset: GeneratedAsset | null;
   currentTime: number;
   isPlaying: boolean;

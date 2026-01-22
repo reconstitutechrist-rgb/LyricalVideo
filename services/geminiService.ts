@@ -31,6 +31,7 @@ import {
   SyncResult,
   WordTiming,
 } from '../types';
+import { getRecommendedBackgroundForGenre } from '../src/effects/background';
 
 // ============================================================================
 // RETRY LOGIC WITH EXPONENTIAL BACKOFF
@@ -467,7 +468,7 @@ export const analyzeAudioAndGetLyrics = async (
       };
 
       const response = await ai.models.generateContent({
-        model: 'gemini-3-flash',
+        model: 'gemini-3-flash-preview',
         contents: {
           parts: [
             { inlineData: { mimeType: audioFile.type, data: base64Audio } },
@@ -507,6 +508,47 @@ export const analyzeAudioAndGetLyrics = async (
     },
     { signal }
   ); // end withRetry
+};
+
+// 1a-b. Transcribe Audio Only (no timestamps, just raw text)
+// Used for the new workflow where user can see/edit lyrics before plan generation
+export const transcribeAudioOnly = async (
+  audioFile: File,
+  signal?: AbortSignal
+): Promise<string> => {
+  return withRetry(
+    async () => {
+      if (signal?.aborted) throw createAbortError();
+      const ai = await getAI();
+      const base64Audio = await fileToBase64(audioFile);
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: {
+          parts: [
+            { inlineData: { mimeType: audioFile.type, data: base64Audio } },
+            {
+              text: `Listen to this audio and transcribe the lyrics exactly as heard.
+
+Return ONLY the plain text lyrics, line by line.
+Do NOT include:
+- Timestamps
+- Section labels (Verse, Chorus, etc.)
+- Any formatting or metadata
+
+Just the raw lyrics text, one line per line of the song.`,
+            },
+          ],
+        },
+        config: {
+          mediaResolution: MediaResolution.MEDIA_RESOLUTION_HIGH,
+        },
+      });
+
+      return response.text || '';
+    },
+    { signal }
+  );
 };
 
 // 1b. Sync Lyrics with Precision (Line/Word/Syllable level timing) - with retry
@@ -564,7 +606,7 @@ export const syncLyricsWithPrecision = async (
       onProgress?.(30);
 
       const response = await ai.models.generateContent({
-        model: 'gemini-3-flash',
+        model: 'gemini-3-flash-preview',
         contents: {
           parts: [
             { inlineData: { mimeType: audioFile.type, data: base64Audio } },
@@ -1102,7 +1144,7 @@ export const transcribeMicrophone = async (audioBlob: Blob): Promise<string> => 
   const base64 = await base64Promise;
 
   const response = await ai.models.generateContent({
-    model: 'gemini-3-flash',
+    model: 'gemini-3-flash-preview',
     contents: {
       parts: [
         { inlineData: { mimeType: 'audio/webm', data: base64 } },
@@ -1175,7 +1217,7 @@ export const detectMusicGenre = async (
       };
 
       const response = await ai.models.generateContent({
-        model: 'gemini-3-flash',
+        model: 'gemini-3-flash-preview',
         contents: {
           parts: [
             { inlineData: { mimeType: audioFile.type, data: base64Audio } },
@@ -1274,7 +1316,7 @@ export const getVisualRecommendations = async (
   };
 
   const response = await ai.models.generateContent({
-    model: 'gemini-3-flash',
+    model: 'gemini-3-flash-preview',
     contents: {
       parts: [
         { inlineData: { mimeType: audioFile.type, data: base64Audio } },
@@ -1353,7 +1395,7 @@ export const detectEmotionalPeaks = async (
       };
 
       const response = await ai.models.generateContent({
-        model: 'gemini-3-flash',
+        model: 'gemini-3-flash-preview',
         contents: {
           parts: [
             { inlineData: { mimeType: audioFile.type, data: base64Audio } },
@@ -1490,37 +1532,182 @@ export const generateVideoPlan = async (
       const base64Audio = await fileToBase64(audioFile);
       if (signal?.aborted) throw createAbortError();
 
-      // Available effects for the AI to choose from
+      // Available effects for the AI to choose from - ALL 34 registered effects
       const availableBackgroundEffects = [
+        // Genre-based effects (14)
         {
           id: 'hiphop-urban',
           name: 'Hip Hop Urban',
-          description: 'Bold geometric shapes, graffiti-inspired',
+          description: 'Bold geometric shapes, graffiti-inspired, street vibes',
         },
         {
           id: 'rock-energy',
           name: 'Rock Energy',
-          description: 'High energy with stage lighting, distortion',
+          description: 'High energy with stage lighting, distortion effects',
         },
         {
           id: 'electronic-edm',
           name: 'Electronic EDM',
-          description: 'Neon grids, synthwave aesthetics',
+          description: 'Neon grids, synthwave aesthetics, pulsing lights',
         },
         {
           id: 'classical-elegant',
           name: 'Classical Elegant',
-          description: 'Refined and minimal with soft particles',
+          description: 'Refined and minimal with soft floating particles',
         },
         {
           id: 'pop-vibrant',
           name: 'Pop Vibrant',
-          description: 'Bright and playful with bouncy shapes',
+          description: 'Bright and playful with bouncy shapes and confetti',
         },
         {
           id: 'indie-dreamy',
           name: 'Indie Dreamy',
-          description: 'Vintage soft bokeh with film grain',
+          description: 'Vintage soft bokeh with film grain overlay',
+        },
+        {
+          id: 'lofi-chill',
+          name: 'Lo-Fi Chill',
+          description: 'Cozy aesthetic with rain drops, steam, warm lighting',
+        },
+        {
+          id: 'metal-inferno',
+          name: 'Metal Inferno',
+          description: 'Intense fire, smoke, aggressive dark visuals',
+        },
+        {
+          id: 'jazz-lounge',
+          name: 'Jazz Lounge',
+          description: 'Sophisticated club ambiance with spotlight and smoke',
+        },
+        {
+          id: 'reggae-tropical',
+          name: 'Reggae Tropical',
+          description: 'Island vibes, palm trees, sunset, rasta colors',
+        },
+        {
+          id: 'ambient-space',
+          name: 'Ambient Space',
+          description: 'Ethereal cosmic environment with stars and nebula',
+        },
+        {
+          id: 'punk-zine',
+          name: 'Punk Zine',
+          description: 'DIY punk aesthetic with collage and rough textures',
+        },
+        {
+          id: 'country-western',
+          name: 'Country Western',
+          description: 'Desert sunset, dusty trails, rustic Americana',
+        },
+        {
+          id: 'future-bass',
+          name: 'Future Bass',
+          description: 'Colorful kawaii visuals with soft pastel gradients',
+        },
+        // Abstract/Geometric effects (5)
+        {
+          id: 'kaleidoscope-dream',
+          name: 'Kaleidoscope Dream',
+          description: 'Mirrored rotating segments with color shifting, trippy psychedelic',
+        },
+        {
+          id: 'geometric-pulse',
+          name: 'Geometric Pulse',
+          description: 'Concentric polygons pulsing with bass, rhythmic patterns',
+        },
+        {
+          id: 'fractal-flow',
+          name: 'Fractal Flow',
+          description: 'Organic flowing patterns with perlin noise aesthetic',
+        },
+        {
+          id: 'spiral-hypnosis',
+          name: 'Spiral Hypnosis',
+          description: 'Rotating spirals with depth illusion, hypnotic trance',
+        },
+        {
+          id: 'sacred-geometry',
+          name: 'Sacred Geometry',
+          description: 'Flower of life, metatron cube, spiritual patterns',
+        },
+        // Nature/Organic effects (5)
+        {
+          id: 'aurora-waves',
+          name: 'Aurora Borealis',
+          description: 'Northern lights flowing curtains, ethereal atmosphere',
+        },
+        {
+          id: 'underwater-deep',
+          name: 'Underwater Deep',
+          description: 'Bubbles, caustics, light rays, ocean depths',
+        },
+        {
+          id: 'forest-fireflies',
+          name: 'Forest Fireflies',
+          description: 'Glowing particles, tree silhouettes, magical forest',
+        },
+        {
+          id: 'storm-electric',
+          name: 'Electric Storm',
+          description: 'Lightning bolts, rain, dark clouds, dramatic atmosphere',
+        },
+        {
+          id: 'cherry-blossoms',
+          name: 'Cherry Blossoms',
+          description: 'Falling petals, soft pink aesthetic, serene Japanese',
+        },
+        // Retro/Vintage effects (5)
+        {
+          id: 'synthwave-sunset',
+          name: 'Synthwave Sunset',
+          description: 'Palm trees, neon sun, grid horizon, 80s retrowave',
+        },
+        {
+          id: 'disco-fever',
+          name: 'Disco Fever',
+          description: 'Mirror ball, light beams, dance floor tiles, 70s party',
+        },
+        {
+          id: 'pixel-arcade',
+          name: 'Pixel Arcade',
+          description: '8-bit blocks, retro game aesthetic, CRT scanlines',
+        },
+        {
+          id: 'vhs-glitch',
+          name: 'VHS Glitch',
+          description: 'Tracking lines, RGB split, tape noise, analog distortion',
+        },
+        {
+          id: 'film-projector',
+          name: 'Film Projector',
+          description: 'Dust, scratches, frame flicker, old cinema aesthetic',
+        },
+        // Energy/Motion effects (5)
+        {
+          id: 'waveform-bars',
+          name: 'Waveform Bars',
+          description: 'Classic audio spectrum visualization, equalizer bars',
+        },
+        {
+          id: 'pulse-rings',
+          name: 'Pulse Rings',
+          description: 'Expanding circles synced to beat, ripple visualization',
+        },
+        {
+          id: 'particle-vortex',
+          name: 'Particle Vortex',
+          description: 'Swirling particles into center, spiral galaxy',
+        },
+        {
+          id: 'liquid-chrome',
+          name: 'Liquid Chrome',
+          description: 'Metallic flowing reflections, mercury-like surface',
+        },
+        {
+          id: 'neon-rain',
+          name: 'Neon Rain',
+          description: 'Matrix-style falling characters with neon glow',
         },
       ];
 
@@ -1646,23 +1833,35 @@ Create a cohesive video plan that includes:
 
 Be creative but cohesive - all elements should work together harmoniously.`;
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-3-pro',
-        contents: {
-          parts: [
-            { inlineData: { mimeType: audioFile.type, data: base64Audio } },
-            { text: prompt },
-          ],
-        },
-        config: {
-          responseMimeType: 'application/json',
-          responseSchema: responseSchema,
-          mediaResolution: MediaResolution.MEDIA_RESOLUTION_HIGH,
-          thinkingConfig: {
-            thinkingLevel: ThinkingLevel.HIGH,
-          },
-        },
+      // Add timeout to prevent hanging on slow API responses
+      const timeoutMs = 90000; // 90 second timeout
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(
+          () => reject(new Error('Video plan generation timed out after 90 seconds')),
+          timeoutMs
+        );
       });
+
+      const response = await Promise.race([
+        ai.models.generateContent({
+          model: 'gemini-3-flash-preview', // Use faster flash model instead of pro
+          contents: {
+            parts: [
+              { inlineData: { mimeType: audioFile.type, data: base64Audio } },
+              { text: prompt },
+            ],
+          },
+          config: {
+            responseMimeType: 'application/json',
+            responseSchema: responseSchema,
+            mediaResolution: MediaResolution.MEDIA_RESOLUTION_HIGH,
+            thinkingConfig: {
+              thinkingLevel: ThinkingLevel.MEDIUM, // Reduced from HIGH for faster response
+            },
+          },
+        }),
+        timeoutPromise,
+      ]);
 
       const json = JSON.parse(response.text || '{}');
 
@@ -1695,13 +1894,15 @@ Be creative but cohesive - all elements should work together harmoniously.`;
         particleSpeed: json.visualStyle.particleSpeed || 1.0,
       };
 
-      // Build background effect
+      // Build background effect - use genre-aware default if Gemini doesn't specify
+      const defaultEffectId = getRecommendedBackgroundForGenre(analysis.consensusGenre);
       const backgroundEffect: VideoPlanEffect = {
-        effectId: json.backgroundEffect.effectId || 'pop-vibrant',
-        name: json.backgroundEffect.name || 'Pop Vibrant',
-        description: json.backgroundEffect.description || 'Bright and colorful background',
+        effectId: json.backgroundEffect?.effectId || defaultEffectId,
+        name: json.backgroundEffect?.name || 'Genre-Matched Effect',
+        description:
+          json.backgroundEffect?.description || 'Audio-reactive background effect matched to genre',
         parameters: {},
-        reason: json.backgroundEffect.reason,
+        reason: json.backgroundEffect?.reason,
       };
 
       // Build lyric effects

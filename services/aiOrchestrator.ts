@@ -223,6 +223,8 @@ export const runFullAnalysis = async (
 
 /**
  * Generate complete video plan with multi-AI analysis
+ * NOTE: This only generates plan METADATA - no backgrounds or visuals are generated yet.
+ * Call generatePlanAssets() after user approves the plan to generate actual assets.
  */
 export const generateFullVideoPlan = async (
   audioFile: File,
@@ -245,7 +247,7 @@ export const generateFullVideoPlan = async (
   throwIfAborted(signal);
   onProgress?.('Generating video plan...');
 
-  // Step 2: Generate the video plan
+  // Step 2: Generate the video plan (metadata only - no assets)
   const planWithoutVisuals = await gemini.generateVideoPlan(
     audioFile,
     analysis,
@@ -255,11 +257,47 @@ export const generateFullVideoPlan = async (
     signal
   );
 
-  // Step 3: AI decides background strategy
+  // Step 3: AI decides background strategy (but doesn't generate yet)
   const backgroundStrategy = decideBackgroundStrategy(analysis, emotionalPeaks, userCreativeVision);
 
-  // Step 4: Generate background based on AI decision
+  // Combine into plan WITHOUT generating assets
+  // Assets will be generated when user approves via generatePlanAssets()
+  const fullPlan: VideoPlan = {
+    ...planWithoutVisuals,
+    userCreativeVision,
+    backgroundStrategy,
+    hybridVisuals: {
+      sharedBackground: null, // Will be generated after approval
+      peakVisuals: [], // Will be generated after approval
+    },
+    status: 'draft', // Mark as draft - awaiting user approval
+  };
+
+  onProgress?.('Video plan ready for review!');
+
+  return fullPlan;
+};
+
+/**
+ * Generate assets (backgrounds and peak visuals) for an approved plan
+ * Call this AFTER user has reviewed and approved the plan
+ */
+export const generatePlanAssets = async (
+  plan: VideoPlan,
+  audioFile: File,
+  lyrics: LyricLine[],
+  aspectRatio: AspectRatio = '16:9',
+  onProgress?: (status: string) => void,
+  signal?: AbortSignal
+): Promise<VideoPlan> => {
   throwIfAborted(signal);
+
+  const backgroundStrategy = plan.backgroundStrategy;
+  if (!backgroundStrategy) {
+    throw new Error('Plan has no background strategy');
+  }
+
+  // Step 1: Generate background based on AI decision
   onProgress?.('Generating background...');
   let sharedBackground: GeneratedAsset | null = null;
 
@@ -330,8 +368,8 @@ export const generateFullVideoPlan = async (
   throwIfAborted(signal);
   onProgress?.('Generating peak visuals...');
 
-  // Step 5: Generate visuals for high-intensity peaks (parallel)
-  const highIntensityPeaks = emotionalPeaks.filter((p) => p.intensity > 0.7);
+  // Step 2: Generate visuals for high-intensity peaks (parallel)
+  const highIntensityPeaks = plan.emotionalPeaks?.filter((p) => p.intensity > 0.7) || [];
 
   const peakVisuals: PeakVisual[] = [];
 
@@ -343,13 +381,7 @@ export const generateFullVideoPlan = async (
       try {
         // Check for abort before each peak generation
         throwIfAborted(signal);
-        const asset = await gemini.generatePeakVisual(
-          peak,
-          lyrics,
-          planWithoutVisuals.mood,
-          aspectRatio,
-          signal
-        );
+        const asset = await gemini.generatePeakVisual(peak, lyrics, plan.mood, aspectRatio, signal);
         return {
           peakId: peak.id,
           lyricIndices: [peak.lyricIndex],
@@ -372,20 +404,19 @@ export const generateFullVideoPlan = async (
     peakVisuals.push(...validResults);
   }
 
-  // Combine into full plan
-  const fullPlan: VideoPlan = {
-    ...planWithoutVisuals,
-    userCreativeVision,
-    backgroundStrategy,
+  // Return plan with generated assets
+  const planWithAssets: VideoPlan = {
+    ...plan,
     hybridVisuals: {
       sharedBackground,
       peakVisuals,
     },
+    status: 'applied',
   };
 
-  onProgress?.('Video plan complete!');
+  onProgress?.('Assets generated!');
 
-  return fullPlan;
+  return planWithAssets;
 };
 
 /**

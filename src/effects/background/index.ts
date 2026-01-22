@@ -27,6 +27,34 @@ import { PunkZineEffect } from './genre/PunkZine';
 import { CountryWesternEffect } from './genre/CountryWestern';
 import { FutureBassEffect } from './genre/FutureBass';
 
+// Abstract/Geometric effects
+import { KaleidoscopeDreamEffect } from './genre/KaleidoscopeDream';
+import { GeometricPulseEffect } from './genre/GeometricPulse';
+import { FractalFlowEffect } from './genre/FractalFlow';
+import { SpiralHypnosisEffect } from './genre/SpiralHypnosis';
+import { SacredGeometryEffect } from './genre/SacredGeometry';
+
+// Nature/Organic effects
+import { AuroraWavesEffect } from './genre/AuroraWaves';
+import { UnderwaterDeepEffect } from './genre/UnderwaterDeep';
+import { ForestFirefliesEffect } from './genre/ForestFireflies';
+import { StormElectricEffect } from './genre/StormElectric';
+import { CherryBlossomsEffect } from './genre/CherryBlossoms';
+
+// Retro/Vintage effects
+import { SynthwaveSunsetEffect } from './genre/SynthwaveSunset';
+import { DiscoFeverEffect } from './genre/DiscoFever';
+import { PixelArcadeEffect } from './genre/PixelArcade';
+import { VHSGlitchEffect } from './genre/VHSGlitch';
+import { FilmProjectorEffect } from './genre/FilmProjector';
+
+// Energy/Motion effects
+import { WaveformBarsEffect } from './genre/WaveformBars';
+import { PulseRingsEffect } from './genre/PulseRings';
+import { ParticleVortexEffect } from './genre/ParticleVortex';
+import { LiquidChromeEffect } from './genre/LiquidChrome';
+import { NeonRainEffect } from './genre/NeonRain';
+
 /**
  * Register all background effects with the registry
  */
@@ -102,6 +130,110 @@ export function registerBackgroundEffects(): void {
     description: 'Colorful kawaii visuals with soft gradients and shapes',
     tags: ['genre', 'futurebass', 'kawaii', 'pastel', 'colorful'],
   });
+
+  // Abstract/Geometric effects
+  EffectRegistry.register(KaleidoscopeDreamEffect, {
+    description: 'Mirrored rotating segments with color shifting',
+    tags: ['abstract', 'geometric', 'trippy', 'psychedelic'],
+  });
+
+  EffectRegistry.register(GeometricPulseEffect, {
+    description: 'Concentric polygons pulsing with bass',
+    tags: ['abstract', 'geometric', 'pulse', 'minimal'],
+  });
+
+  EffectRegistry.register(FractalFlowEffect, {
+    description: 'Organic flowing patterns with perlin noise',
+    tags: ['abstract', 'organic', 'flow', 'ambient'],
+  });
+
+  EffectRegistry.register(SpiralHypnosisEffect, {
+    description: 'Rotating spirals with depth illusion',
+    tags: ['abstract', 'spiral', 'hypnotic', 'trippy'],
+  });
+
+  EffectRegistry.register(SacredGeometryEffect, {
+    description: 'Flower of life and metatron cube patterns',
+    tags: ['abstract', 'geometric', 'sacred', 'spiritual'],
+  });
+
+  // Nature/Organic effects
+  EffectRegistry.register(AuroraWavesEffect, {
+    description: 'Northern lights flowing curtains',
+    tags: ['nature', 'aurora', 'ethereal', 'calm'],
+  });
+
+  EffectRegistry.register(UnderwaterDeepEffect, {
+    description: 'Bubbles, caustics, and ocean light rays',
+    tags: ['nature', 'underwater', 'ocean', 'serene'],
+  });
+
+  EffectRegistry.register(ForestFirefliesEffect, {
+    description: 'Glowing particles in magical forest',
+    tags: ['nature', 'forest', 'fireflies', 'magical'],
+  });
+
+  EffectRegistry.register(StormElectricEffect, {
+    description: 'Lightning bolts, rain, and dark clouds',
+    tags: ['nature', 'storm', 'lightning', 'dramatic'],
+  });
+
+  EffectRegistry.register(CherryBlossomsEffect, {
+    description: 'Falling petals with soft pink aesthetic',
+    tags: ['nature', 'cherry', 'blossoms', 'serene', 'japanese'],
+  });
+
+  // Retro/Vintage effects
+  EffectRegistry.register(SynthwaveSunsetEffect, {
+    description: 'Palm trees, sun, and neon grid horizon',
+    tags: ['retro', 'synthwave', '80s', 'neon', 'sunset'],
+  });
+
+  EffectRegistry.register(DiscoFeverEffect, {
+    description: 'Mirror ball, light beams, and dance floor',
+    tags: ['retro', 'disco', '70s', 'party', 'dance'],
+  });
+
+  EffectRegistry.register(PixelArcadeEffect, {
+    description: '8-bit blocks and retro game aesthetic',
+    tags: ['retro', 'pixel', 'arcade', '8bit', 'game'],
+  });
+
+  EffectRegistry.register(VHSGlitchEffect, {
+    description: 'Tracking lines, RGB split, tape noise',
+    tags: ['retro', 'vhs', 'glitch', 'distortion', 'analog'],
+  });
+
+  EffectRegistry.register(FilmProjectorEffect, {
+    description: 'Dust, scratches, and frame flicker',
+    tags: ['retro', 'film', 'vintage', 'cinema', 'grain'],
+  });
+
+  // Energy/Motion effects
+  EffectRegistry.register(WaveformBarsEffect, {
+    description: 'Classic audio spectrum visualization',
+    tags: ['energy', 'waveform', 'spectrum', 'audio', 'bars'],
+  });
+
+  EffectRegistry.register(PulseRingsEffect, {
+    description: 'Expanding circles synced to beat',
+    tags: ['energy', 'pulse', 'rings', 'beat', 'ripple'],
+  });
+
+  EffectRegistry.register(ParticleVortexEffect, {
+    description: 'Swirling particles into center',
+    tags: ['energy', 'vortex', 'particles', 'spiral', 'galaxy'],
+  });
+
+  EffectRegistry.register(LiquidChromeEffect, {
+    description: 'Metallic flowing reflections',
+    tags: ['energy', 'chrome', 'liquid', 'metallic', 'futuristic'],
+  });
+
+  EffectRegistry.register(NeonRainEffect, {
+    description: 'Matrix-style falling characters',
+    tags: ['energy', 'matrix', 'neon', 'rain', 'cyber'],
+  });
 }
 
 /**
@@ -119,7 +251,7 @@ export function getRecommendedBackgroundForGenre(genre: string): string {
     indie: 'indie-dreamy',
     folk: 'indie-dreamy',
     rnb: 'hiphop-urban',
-    // New mappings
+    // Genre effects
     metal: 'metal-inferno',
     jazz: 'jazz-lounge',
     lofi: 'lofi-chill',
@@ -142,6 +274,34 @@ export function getRecommendedBackgroundForGenre(genre: string): string {
     house: 'electronic-edm',
     techno: 'electronic-edm',
     trap: 'hiphop-urban',
+    // New effect mappings
+    psychedelic: 'kaleidoscope-dream',
+    trance: 'spiral-hypnosis',
+    meditation: 'sacred-geometry',
+    newage: 'sacred-geometry',
+    nature: 'aurora-waves',
+    aquatic: 'underwater-deep',
+    forest: 'forest-fireflies',
+    storm: 'storm-electric',
+    japanese: 'cherry-blossoms',
+    anime: 'cherry-blossoms',
+    synthwave: 'synthwave-sunset',
+    retrowave: 'synthwave-sunset',
+    disco: 'disco-fever',
+    funk: 'disco-fever',
+    chiptune: 'pixel-arcade',
+    '8bit': 'pixel-arcade',
+    vaporwave: 'vhs-glitch',
+    cinematic: 'film-projector',
+    orchestral: 'film-projector',
+    dnb: 'waveform-bars',
+    'drum and bass': 'waveform-bars',
+    dubstep: 'pulse-rings',
+    bass: 'pulse-rings',
+    progressive: 'particle-vortex',
+    industrial: 'liquid-chrome',
+    cyberpunk: 'neon-rain',
+    darkwave: 'neon-rain',
   };
 
   return genreMap[genre.toLowerCase()] || 'electronic-edm';

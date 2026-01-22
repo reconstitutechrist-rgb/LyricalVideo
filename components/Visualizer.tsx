@@ -32,7 +32,7 @@ interface VisualizerProps {
   lyrics: LyricLine[];
   currentTime?: number;
   isPlaying?: boolean;
-  style: VisualStyle;
+  style: VisualStyle | null;
   backgroundAsset: GeneratedAsset | null;
   onTimeUpdate: (time: number) => void;
   aspectRatio: AspectRatio;
@@ -50,6 +50,8 @@ interface VisualizerProps {
   activeGenre?: Genre | null;
   // Export quality settings
   exportResolution?: ExportResolution;
+  // Plan applied flag - only render visuals when true
+  planApplied?: boolean;
 }
 
 // HSL to RGB helper function (extracted outside render loop for performance)
@@ -75,20 +77,22 @@ class Particle {
   historyIndex: number; // Circular buffer write index
   historyLength: number; // Current valid entries count
 
-  constructor(w: number, h: number, palette: ColorPalette) {
+  constructor(w: number, h: number, palette: ColorPalette | null) {
     this.x = Math.random() * w;
     this.y = Math.random() * h;
     this.baseSize = Math.random() * 3 + 1;
     this.size = this.baseSize;
     this.speedX = (Math.random() - 0.5) * 2;
     this.speedY = (Math.random() - 0.5) * 2;
-    this.color = this.getColor(palette);
+    this.color = palette ? this.getColor(palette) : 'hsla(0, 0%, 50%, 0.5)'; // Gray if no palette
     this.history = [];
     this.historyIndex = 0;
     this.historyLength = 0;
   }
 
-  getColor(palette: ColorPalette): string {
+  getColor(palette: ColorPalette | null): string {
+    // If no palette, return a neutral gray
+    if (!palette) return 'hsla(0, 0%, 50%, 0.5)';
     // Original palettes
     if (palette === 'neon') return `hsla(${Math.random() * 60 + 280}, 100%, 50%, 0.6)`;
     if (palette === 'sunset') return `hsla(${Math.random() * 60 + 10}, 100%, 60%, 0.6)`;
@@ -125,12 +129,13 @@ class Particle {
     return `hsla(${Math.random() * 360}, 100%, 50%, 0.5)`;
   }
 
-  updateColor(palette: ColorPalette, sentimentColor?: string) {
+  updateColor(palette: ColorPalette | null, sentimentColor?: string) {
     if (sentimentColor) {
       this.color = sentimentColor;
-    } else {
+    } else if (palette) {
       this.color = this.getColor(palette);
     }
+    // If no palette and no sentimentColor, keep existing color
   }
 
   update(
@@ -238,6 +243,7 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
       backgroundEffects = [],
       activeGenre: _activeGenre,
       exportResolution = '1080p' as ExportResolution,
+      planApplied = false,
     },
     ref
   ) => {
@@ -477,21 +483,8 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
         audioContextStartTimeRef.current = audioCtx.currentTime;
         audioElementStartTimeRef.current = audio.currentTime;
 
-        particlesRef.current = Array.from(
-          { length: 150 },
-          () => new Particle(width, height, settings.palette)
-        );
-
-        // Pre-allocate particle data pool for WebGL rendering (avoids per-frame allocations)
-        particleDataPoolRef.current = Array.from({ length: 150 }, () => ({
-          x: 0,
-          y: 0,
-          size: 0,
-          r: 1,
-          g: 1,
-          b: 1,
-          opacity: 0.8,
-        }));
+        // NOTE: Particles are NOT initialized here anymore.
+        // They will be initialized when planApplied becomes true.
 
         return () => {
           audio.removeEventListener('timeupdate', handleTimeUpdate);
@@ -503,6 +496,33 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
       // initial particle creation but shouldn't trigger audio context recreation on resize.
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [audioUrl]);
+
+    // Initialize particles only when plan is applied
+    useEffect(() => {
+      if (!planApplied) {
+        // Clear particles when plan is not applied
+        particlesRef.current = [];
+        particleDataPoolRef.current = [];
+        return;
+      }
+
+      // Plan applied - initialize particles based on style settings
+      particlesRef.current = Array.from(
+        { length: 150 },
+        () => new Particle(width, height, settings.palette)
+      );
+
+      // Pre-allocate particle data pool for WebGL rendering
+      particleDataPoolRef.current = Array.from({ length: 150 }, () => ({
+        x: 0,
+        y: 0,
+        size: 0,
+        r: 1,
+        g: 1,
+        b: 1,
+        opacity: 0.8,
+      }));
+    }, [planApplied, width, height, settings.palette]);
 
     // Initialize/resize WebGL particle renderer
     useEffect(() => {
@@ -754,6 +774,42 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
+      // When plan is not applied, render transparent canvas
+      // This allows the empty state UI to show through and prevents any default visuals
+      if (!planApplied) {
+        ctx.clearRect(0, 0, width, height);
+        requestRef.current = requestAnimationFrame(draw);
+        return;
+      }
+
+      // When no audio is loaded and no background, render transparent canvas
+      // This allows the empty state UI to show through
+      if (!audioUrl && !backgroundAsset) {
+        ctx.clearRect(0, 0, width, height);
+        requestRef.current = requestAnimationFrame(draw);
+        return;
+      }
+
+      // When no audio but has background, just draw the background without effects
+      if (!audioUrl && backgroundAsset) {
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(0, 0, width, height);
+
+        // Draw background image/video
+        if (
+          (backgroundAsset.type === 'video' || backgroundAsset.type === 'extended-video') &&
+          videoRef.current &&
+          videoRef.current.readyState >= 2
+        ) {
+          ctx.drawImage(videoRef.current, 0, 0, width, height);
+        } else if (backgroundAsset.type === 'image' && bgImageRef.current) {
+          ctx.drawImage(bgImageRef.current, 0, 0, width, height);
+        }
+
+        requestRef.current = requestAnimationFrame(draw);
+        return;
+      }
+
       frameCountRef.current += 1;
 
       // Use high-precision timing for smoother animations
@@ -761,13 +817,15 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
 
       const targetLine = lyrics.find((l) => preciseTime >= l.startTime && preciseTime <= l.endTime);
 
+      // Only use styles/palettes from the applied plan - no fallbacks
       const effectiveStyle = targetLine?.styleOverride || style;
       const effectivePalette = targetLine?.paletteOverride || settings.palette;
       const sentimentColor = targetLine?.sentimentColor;
 
+      // Only update particle colors if we have a valid palette
       if (
-        prevPaletteRef.current !== effectivePalette ||
-        prevSentimentRef.current !== sentimentColor
+        effectivePalette &&
+        (prevPaletteRef.current !== effectivePalette || prevSentimentRef.current !== sentimentColor)
       ) {
         particlesRef.current.forEach((p) => p.updateColor(effectivePalette, sentimentColor));
         prevPaletteRef.current = effectivePalette;
@@ -895,7 +953,7 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
           ctx.fillRect(0, 0, width, height);
         } else {
           // Normal mode: animated background with effects
-          const baseOpacity = effectiveStyle === VisualStyle.CINEMATIC_BACKDROP ? 0.6 : 0.25;
+          const baseOpacity = 0.9; // Full brightness - no more style-based dimming
           let opacity = baseOpacity;
 
           // --- BASS PULSATING LOGIC ---
@@ -915,45 +973,34 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
 
           ctx.save();
           ctx.globalAlpha = opacity;
-          ctx.globalCompositeOperation = settings.backgroundBlendMode;
+          // Don't use blend mode for main background - use normal 'source-over'
+          // Blend modes are for effects compositing, not the base background
 
-          const baseZoom = 1.05;
-          // Bass-driven zoom
-          const bassZoom = bassActivity * 0.08 * settings.intensity;
-          const totalZoom = baseZoom + bassZoom;
-
-          // Standard slow drift
-          const safePanX = (width * (baseZoom - 1)) / 2;
-          const safePanY = (height * (baseZoom - 1)) / 2;
-          const panX = Math.sin(time * 0.5) * safePanX;
-          const panY = Math.cos(time * 0.3) * safePanY;
-
-          ctx.translate(width / 2 + panX, height / 2 + panY);
-          ctx.scale(totalZoom, totalZoom);
-
-          const drawX = -width / 2;
-          const drawY = -height / 2;
-
+          // Draw background at full size without zoom/scale for maximum quality
+          // No zoom or drift effects - preserves crisp AI-generated visuals
           if (
             (backgroundAsset.type === 'video' || backgroundAsset.type === 'extended-video') &&
             videoRef.current
           ) {
             if (videoRef.current.readyState >= 2) {
-              ctx.drawImage(videoRef.current, drawX, drawY, width, height);
+              ctx.drawImage(videoRef.current, 0, 0, width, height);
             }
           } else if (backgroundAsset.type === 'image' && bgImageRef.current) {
-            ctx.drawImage(bgImageRef.current, drawX, drawY, width, height);
+            ctx.drawImage(bgImageRef.current, 0, 0, width, height);
           }
           ctx.restore();
 
-          const overlayOpacity = effectiveStyle === VisualStyle.CINEMATIC_BACKDROP ? 0.3 : 0.5;
-          ctx.fillStyle = `rgba(0,0,0,${overlayOpacity})`;
+          // Light overlay for text readability only
+          ctx.fillStyle = 'rgba(0,0,0,0.2)';
           ctx.fillRect(0, 0, width, height);
         }
       }
 
-      // Skip all visual style effects in lyrics-only mode
-      if (!settings.lyricsOnlyMode) {
+      // DISABLED: All hardcoded visual style effects removed
+      // Only render what's in the plan (background + lyrics + effects system)
+      // The old visual styles (NEON_PULSE, FILM_NOIR, etc.) were hardcoded and not from the plan
+      if (false) {
+        // eslint-disable-line no-constant-condition
         if (effectiveStyle === VisualStyle.NEON_PULSE) {
           // Update particle physics
           particlesRef.current.forEach((p) => {
@@ -1589,12 +1636,11 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
         }
       } // End of !lyricsOnlyMode block for visual effects
 
-      // Render background effects from the effects system (skip in lyrics-only mode)
-      if (
-        !settings.lyricsOnlyMode &&
-        backgroundComposerRef.current &&
-        backgroundEffects.length > 0
-      ) {
+      // DISABLED: Background effects from the effects system (JazzLounge, HipHopUrban, etc.)
+      // These contain hardcoded spotlights and other effects not from the plan
+      // Only render background image/video from the plan
+      if (false) {
+        // eslint-disable-line no-constant-condition
         const bgContext: EffectContext = {
           ctx,
           width,
@@ -1613,7 +1659,7 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
           settings,
           palette: effectivePalette,
         };
-        backgroundComposerRef.current.renderBackground(bgContext);
+        backgroundComposerRef.current?.renderBackground(bgContext);
       }
 
       // NOTE: Removed restore() here to keep shake context for lyrics

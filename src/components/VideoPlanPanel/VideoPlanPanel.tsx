@@ -14,6 +14,7 @@ import {
   LyricLine,
   EmotionalPeak,
 } from '../../../types';
+import { toast } from '../../stores';
 import { ConfidenceIndicator } from './ConfidenceIndicator';
 import { MoodCard } from './MoodCard';
 import { ColorPaletteCard } from './ColorPaletteCard';
@@ -24,15 +25,16 @@ import { PlanSummaryModal } from './PlanSummaryModal';
 import { BackgroundStrategyCard } from './BackgroundStrategyCard';
 import { ConversationalOnboarding } from './ConversationalOnboarding';
 
-type OnboardingStage = 'welcome' | 'uploading' | 'lyrics' | 'vision' | 'generating';
+// Simplified stages: audio-lyrics (combined) -> vision -> generating
+type OnboardingStage = 'audio-lyrics' | 'vision' | 'generating';
 
 interface VideoPlanPanelProps {
   plan: VideoPlan | null;
   lyrics: LyricLine[];
   isGenerating: boolean;
   onRegenerate: () => void;
-  onApply: () => void;
-  onModifyViaChat: (instruction: string) => void;
+  onApply: () => void | Promise<void>;
+  onModifyViaChat: (instruction: string) => Promise<void>;
   onMoodEdit: (mood: VideoPlanMood) => void;
   onPaletteEdit: (palette: VideoPlanColorPalette) => void;
   onStyleEdit: (style: VideoPlanVisualStyle) => void;
@@ -42,13 +44,18 @@ interface VideoPlanPanelProps {
   onBackgroundRegenerate: () => void;
   isRegeneratingBackground: boolean;
   onClose: () => void;
-  // New props for conversational onboarding
+  // Props for conversational onboarding
   audioFile: File | null;
   onFileDrop: (file: File) => void;
-  onLyricsSubmit: (lyrics: string) => void;
   onVisionSubmit: (vision: string) => void;
   processingStatus: string;
   isProcessingAudio: boolean;
+  // New props for transcription workflow
+  currentLyrics: string;
+  onLyricsChange: (lyrics: string) => void;
+  onTranscribe: () => void;
+  isTranscribing: boolean;
+  onLyricsContinue: () => void;
 }
 
 export const VideoPlanPanel: React.FC<VideoPlanPanelProps> = ({
@@ -67,30 +74,46 @@ export const VideoPlanPanel: React.FC<VideoPlanPanelProps> = ({
   onBackgroundRegenerate,
   isRegeneratingBackground,
   onClose,
-  // New props
+  // Onboarding props
   audioFile,
   onFileDrop,
-  onLyricsSubmit,
   onVisionSubmit,
   processingStatus,
   isProcessingAudio,
+  // Transcription workflow props
+  currentLyrics,
+  onLyricsChange,
+  onTranscribe,
+  isTranscribing,
+  onLyricsContinue,
 }) => {
   const [showSummary, setShowSummary] = useState(false);
   const [chatInput, setChatInput] = useState('');
   const [isModifying, setIsModifying] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
 
-  // Onboarding stage management
-  const [onboardingStage, setOnboardingStage] = useState<OnboardingStage>('welcome');
+  // Onboarding stage management - start with audio-lyrics (combined stage)
+  const [onboardingStage, setOnboardingStage] = useState<OnboardingStage>('audio-lyrics');
 
   const handleChatSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!chatInput.trim() || isModifying) return;
 
+    const instruction = chatInput.trim();
     setIsModifying(true);
-    await onModifyViaChat(chatInput.trim());
-    setChatInput('');
-    setIsModifying(false);
+    setChatInput(''); // Clear input immediately for better UX
+
+    try {
+      await onModifyViaChat(instruction);
+      toast.success('Plan Updated', 'Your modification has been applied.');
+    } catch (err) {
+      console.error('Failed to modify plan:', err);
+      toast.error('Modification Failed', 'Could not update the plan. Please try again.');
+      // Restore input so user doesn't lose their text
+      setChatInput(instruction);
+    } finally {
+      setIsModifying(false);
+    }
   };
 
   const handleApplyConfirm = () => {
@@ -125,7 +148,7 @@ export const VideoPlanPanel: React.FC<VideoPlanPanelProps> = ({
       if (!audioFile) {
         const file = e.dataTransfer.files[0];
         if (file && file.type.startsWith('audio/')) {
-          setOnboardingStage('uploading');
+          // Stay on audio-lyrics stage, just update the file
           onFileDrop(file);
         }
       }
@@ -133,23 +156,8 @@ export const VideoPlanPanel: React.FC<VideoPlanPanelProps> = ({
     [audioFile, onFileDrop]
   );
 
-  // Watch for audio processing completion to advance to lyrics stage
-  React.useEffect(() => {
-    if (onboardingStage === 'uploading' && audioFile && !isProcessingAudio) {
-      setOnboardingStage('lyrics');
-    }
-  }, [onboardingStage, audioFile, isProcessingAudio]);
-
-  // Handle case where audioFile already exists on mount (e.g., uploaded via left panel but plan failed)
-  // Intentionally run only on mount to check initial state. Including deps would cause
-  // unwanted stage transitions whenever these values change during normal operation.
-  React.useEffect(() => {
-    if (onboardingStage === 'welcome' && audioFile && !isProcessingAudio && !plan) {
-      // Audio was already uploaded, skip to lyrics stage
-      setOnboardingStage('lyrics');
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // No longer need to watch for audio processing completion since we have combined audio-lyrics stage
+  // The user manually clicks "Continue" to proceed to vision stage
 
   // Handle plan generation failure - reset to vision stage so user can retry
   React.useEffect(() => {
@@ -162,16 +170,11 @@ export const VideoPlanPanel: React.FC<VideoPlanPanelProps> = ({
 
   // Onboarding flow handlers
   const handleFileDropFromBubble = (file: File) => {
-    setOnboardingStage('uploading');
     onFileDrop(file);
   };
 
-  const handleLyricsSubmit = (lyrics: string) => {
-    onLyricsSubmit(lyrics);
-    setOnboardingStage('vision');
-  };
-
-  const handleSkipLyrics = () => {
+  const handleLyricsContinue = () => {
+    onLyricsContinue();
     setOnboardingStage('vision');
   };
 
@@ -239,11 +242,16 @@ export const VideoPlanPanel: React.FC<VideoPlanPanelProps> = ({
         {showOnboarding ? (
           <ConversationalOnboarding
             stage={onboardingStage}
+            audioFile={audioFile}
             audioFileName={audioFileName}
+            lyrics={currentLyrics}
+            isTranscribing={isTranscribing}
+            isProcessing={isProcessingAudio}
             processingStatus={processingStatus}
             onFileDrop={handleFileDropFromBubble}
-            onLyricsSubmit={handleLyricsSubmit}
-            onSkipLyrics={handleSkipLyrics}
+            onTranscribe={onTranscribe}
+            onLyricsChange={onLyricsChange}
+            onLyricsContinue={handleLyricsContinue}
             onVisionSubmit={handleVisionSubmit}
             onSkipVision={handleSkipVision}
           />

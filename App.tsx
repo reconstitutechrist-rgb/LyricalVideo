@@ -46,6 +46,7 @@ import {
   generateBackground,
   generateVideoBackground,
   transcribeMicrophone,
+  transcribeAudioOnly,
   analyzeImage,
   detectMusicGenre,
   modifyVideoPlan,
@@ -180,7 +181,8 @@ const App = () => {
     userProvidedLyrics: '',
     userCreativeVision: '',
     metadata: null,
-    currentStyle: VisualStyle.NEON_PULSE,
+    currentStyle: null, // No style until plan is applied
+    planApplied: false, // Set to true when user applies the video plan
     backgroundAsset: null,
     currentTime: 0,
     isPlaying: false,
@@ -191,8 +193,8 @@ const App = () => {
       speedX: 1.0,
       speedY: 1.0,
       intensity: 1.0,
-      palette: 'neon',
-      colorPalette: 'neon', // UI-friendly alias
+      palette: null, // No palette until plan is applied
+      colorPalette: null, // No palette until plan is applied
       dynamicBackgroundOpacity: false,
       dynamicBackgroundPulse: false, // UI-friendly alias
       textAnimation: 'KINETIC',
@@ -663,6 +665,8 @@ const App = () => {
 
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingStatus, setProcessingStatus] = useState('');
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const [editableLyrics, setEditableLyrics] = useState('');
   const [chatOpen, setChatOpen] = useState(true);
 
   // ============================================================================
@@ -921,10 +925,25 @@ const App = () => {
     }
   }, []);
 
-  // Handle lyrics submit from AI panel onboarding
-  const handleLyricsSubmitFromPanel = useCallback((lyrics: string) => {
-    setState((prev) => ({ ...prev, userProvidedLyrics: lyrics }));
-  }, []);
+  // Handle transcribe from AI panel onboarding
+  const handleTranscribe = useCallback(async () => {
+    if (!state.audioFile) return;
+    setIsTranscribing(true);
+    try {
+      const text = await transcribeAudioOnly(state.audioFile);
+      setEditableLyrics(text);
+      toast.success('Transcription complete');
+    } catch (err) {
+      toast.error('Transcription failed', 'Try again or paste manually');
+    } finally {
+      setIsTranscribing(false);
+    }
+  }, [state.audioFile]);
+
+  // Handle lyrics continue from AI panel onboarding
+  const handleLyricsContinue = useCallback(() => {
+    setState((prev) => ({ ...prev, userProvidedLyrics: editableLyrics }));
+  }, [editableLyrics]);
 
   // Handle creative vision submit from AI panel onboarding - triggers plan generation
   const handleVisionSubmitFromPanel = async (vision: string) => {
@@ -2233,10 +2252,14 @@ const App = () => {
             onClose={() => setShowPlanPanel(false)}
             audioFile={state.audioFile}
             onFileDrop={handleFileDrop}
-            onLyricsSubmit={handleLyricsSubmitFromPanel}
             onVisionSubmit={handleVisionSubmitFromPanel}
             processingStatus={processingStatus}
             isProcessingAudio={isProcessing}
+            currentLyrics={editableLyrics}
+            onLyricsChange={setEditableLyrics}
+            onTranscribe={handleTranscribe}
+            isTranscribing={isTranscribing}
+            onLyricsContinue={handleLyricsContinue}
           />
         )}
       </>
@@ -3729,10 +3752,14 @@ const App = () => {
           onClose={() => setShowPlanPanel(false)}
           audioFile={state.audioFile}
           onFileDrop={handleFileDrop}
-          onLyricsSubmit={handleLyricsSubmitFromPanel}
           onVisionSubmit={handleVisionSubmitFromPanel}
           processingStatus={processingStatus}
           isProcessingAudio={isProcessing}
+          currentLyrics={editableLyrics}
+          onLyricsChange={setEditableLyrics}
+          onTranscribe={handleTranscribe}
+          isTranscribing={isTranscribing}
+          onLyricsContinue={handleLyricsContinue}
         />
       )}
 
