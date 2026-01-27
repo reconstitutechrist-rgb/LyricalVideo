@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { LyricalFlowUI } from './LyricalFlowUI';
-import Visualizer from '../../../components/Visualizer';
+import Visualizer from '../Visualizer/Visualizer';
 import {
   AppState,
   VisualStyle,
@@ -93,8 +93,7 @@ export const LyricalFlowWrapper: React.FC<LyricalFlowWrapperProps> = ({
   const [editMode, setEditMode] = useState(false);
   const [selectedLyricIndices, setSelectedLyricIndices] = useState<Set<number>>(new Set());
 
-  // Local state for recording
-  const [isRecordingMic, setIsRecordingMic] = useState(false);
+
 
   // Merge visual settings with section overrides based on current time
   const mergedVisualSettings = useMemo(() => {
@@ -327,21 +326,7 @@ export const LyricalFlowWrapper: React.FC<LyricalFlowWrapperProps> = ({
     [setState]
   );
 
-  // ========================================
-  // Recording Handlers
-  // ========================================
 
-  const handleStartMicRecording = useCallback(() => {
-    setIsRecordingMic(true);
-    // TODO: Implement actual microphone recording
-    console.log('Starting mic recording...');
-  }, []);
-
-  const handleStopMicRecording = useCallback(() => {
-    setIsRecordingMic(false);
-    // TODO: Implement actual microphone recording stop
-    console.log('Stopping mic recording...');
-  }, []);
 
   // ========================================
   // Edit Mode Handlers
@@ -791,7 +776,7 @@ export const LyricalFlowWrapper: React.FC<LyricalFlowWrapperProps> = ({
       blendMode={state.visualSettings.blendMode}
       frequencyMapping={state.visualSettings.frequencyMapping}
       // Recording
-      isRecordingMic={isRecordingMic}
+
       // Edit Mode
       editMode={editMode}
       selectedLyricIndices={selectedLyricIndices}
@@ -833,9 +818,7 @@ export const LyricalFlowWrapper: React.FC<LyricalFlowWrapperProps> = ({
       onParticleTrailsToggle={handleParticleTrailsToggle}
       onBlendModeChange={handleBlendModeChange}
       onFrequencyMappingChange={handleFrequencyMappingChange}
-      // Callbacks - Recording
-      onStartMicRecording={handleStartMicRecording}
-      onStopMicRecording={handleStopMicRecording}
+
       onImageAnalysis={onImageAnalysis}
       // Callbacks - Edit Mode
       onEditModeToggle={handleEditModeToggle}

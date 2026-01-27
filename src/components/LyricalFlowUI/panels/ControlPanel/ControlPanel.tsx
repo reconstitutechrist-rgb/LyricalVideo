@@ -71,8 +71,7 @@ export interface ControlPanelProps {
     color: FrequencyBand;
   };
 
-  // Recording
-  isRecordingMic: boolean;
+
 
   // Genre Detection
   detectedGenre: string | null;
@@ -109,9 +108,7 @@ export interface ControlPanelProps {
   onBlendModeChange: (mode: BlendMode) => void;
   onFrequencyMappingChange: (key: 'pulse' | 'motion' | 'color', band: FrequencyBand) => void;
 
-  // Callbacks - Recording
-  onStartMicRecording: () => void;
-  onStopMicRecording: () => void;
+
   onImageAnalysis: (e: React.ChangeEvent<HTMLInputElement>) => void;
 
   // Callbacks - Genre
@@ -148,8 +145,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   particleTrails,
   blendMode,
   frequencyMapping,
-  // Recording
-  isRecordingMic,
+
   // Genre Detection
   detectedGenre,
   genreOverride,
@@ -179,8 +175,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   onParticleTrailsToggle,
   onBlendModeChange,
   onFrequencyMappingChange,
-  onStartMicRecording,
-  onStopMicRecording,
+
   onImageAnalysis,
   onGenreOverride,
   onAddLyricEffect,
@@ -312,34 +307,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
             storageKey="advanced-input"
             requiresAdvancedMode
           >
-            {/* Mic Recording */}
-            <button
-              onClick={isRecordingMic ? onStopMicRecording : onStartMicRecording}
-              className={`w-full p-2.5 rounded-lg glass-card flex items-center gap-2 text-left transition ${
-                isRecordingMic ? 'mic-recording border-red-500/50' : ''
-              }`}
-              aria-label={isRecordingMic ? 'Stop recording' : 'Start recording lyrics'}
-            >
-              <div
-                className={`w-7 h-7 rounded-full flex items-center justify-center border ${
-                  isRecordingMic
-                    ? 'border-red-500 bg-red-500/20'
-                    : 'border-cyan-500/30 bg-cyan-500/10'
-                }`}
-              >
-                <MicrophoneIcon
-                  className={`w-4 h-4 ${isRecordingMic ? 'text-red-400' : 'text-cyan-400'}`}
-                />
-              </div>
-              <div>
-                <div className="text-[10px] font-medium">
-                  {isRecordingMic ? 'Recording...' : 'Speak Lyrics'}
-                </div>
-                <div className="text-[8px] text-slate-500">
-                  {isRecordingMic ? 'Click to stop' : 'Use microphone to input lyrics'}
-                </div>
-              </div>
-            </button>
+
 
             {/* Image Analysis */}
             <button

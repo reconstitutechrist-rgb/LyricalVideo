@@ -19,13 +19,13 @@ import {
   Genre,
   ExportResolution,
   WordTiming,
-} from '../types';
-import { EffectRegistry, EffectComposer } from '../src/effects/core';
-import { EffectContext, LyricEffectContext } from '../src/effects/core/Effect';
-import { BeatDetector, BeatData } from '../services/beatDetectionService';
-import { Easings } from '../src/effects/utils/MathUtils';
-import { useAudioStore } from '../src/stores';
-import { WebGLParticleRenderer, ParticleData } from '../src/renderers';
+} from '../../../types';
+import { EffectRegistry, EffectComposer } from '../../effects/core';
+import { EffectContext, LyricEffectContext } from '../../effects/core/Effect';
+import { BeatDetector, BeatData } from '../../../services/beatDetectionService';
+import { Easings } from '../../effects/utils/MathUtils';
+import { useAudioStore } from '../../stores';
+import { WebGLParticleRenderer, ParticleData } from '../../renderers';
 
 interface VisualizerProps {
   audioUrl?: string | null;

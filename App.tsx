@@ -36,7 +36,7 @@ import {
   PaperAirplaneIcon,
   CursorArrowRaysIcon,
 } from '@heroicons/react/24/solid';
-import Visualizer from './components/Visualizer';
+import Visualizer from './src/components/Visualizer/Visualizer';
 import Waveform from './components/Waveform';
 import { decodeAudio } from './utils/audio';
 import { formatTime } from './src/utils/time';
@@ -45,7 +45,6 @@ import {
   sendChatMessage,
   generateBackground,
   generateVideoBackground,
-  transcribeMicrophone,
   transcribeAudioOnly,
   analyzeImage,
   detectMusicGenre,
@@ -707,11 +706,6 @@ const App = () => {
   const [targetSize, setTargetSize] = useState<ImageSize>('1K');
   const [isGenerating, setIsGenerating] = useState(false);
   const [genAspectRatio, setGenAspectRatio] = useState<'16:9' | '9:16'>('16:9');
-
-  // Mic Recording State
-  const [isRecordingMic, setIsRecordingMic] = useState(false);
-  const micRecorderRef = useRef<MediaRecorder | null>(null);
-  const micChunksRef = useRef<Blob[]>([]);
 
   // Editing State
   const [editMode, setEditMode] = useState(false);
@@ -1506,65 +1500,7 @@ const App = () => {
     ]);
   };
 
-  // Handle microphone transcription
-  const startMicRecording = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
-      micChunksRef.current = [];
 
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) {
-          micChunksRef.current.push(e.data);
-        }
-      };
-
-      recorder.onstop = async () => {
-        const blob = new Blob(micChunksRef.current, { type: 'audio/webm' });
-        stream.getTracks().forEach((track) => track.stop());
-
-        setIsProcessing(true);
-        try {
-          const transcription = await transcribeMicrophone(blob);
-          setState((prev) => ({
-            ...prev,
-            userProvidedLyrics: prev.userProvidedLyrics
-              ? `${prev.userProvidedLyrics}\n${transcription}`
-              : transcription,
-          }));
-          setChatMessages((prev) => [
-            ...prev,
-            { role: 'model', text: `Transcribed: "${transcription}"`, timestamp: new Date() },
-          ]);
-        } catch (_err) {
-          toast.error('Transcription Failed', 'Could not transcribe audio');
-          setChatMessages((prev) => [
-            ...prev,
-            { role: 'model', text: 'Failed to transcribe audio.', timestamp: new Date() },
-          ]);
-        } finally {
-          setIsProcessing(false);
-        }
-      };
-
-      micRecorderRef.current = recorder;
-      recorder.start();
-      setIsRecordingMic(true);
-    } catch (_err) {
-      toast.error('Microphone Access Denied', 'Please grant microphone permissions');
-      setChatMessages((prev) => [
-        ...prev,
-        { role: 'model', text: 'Microphone access denied.', timestamp: new Date() },
-      ]);
-    }
-  };
-
-  const stopMicRecording = () => {
-    if (micRecorderRef.current && micRecorderRef.current.state !== 'inactive') {
-      micRecorderRef.current.stop();
-    }
-    setIsRecordingMic(false);
-  };
 
   // Handle image analysis
   const handleImageAnalysis = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -2381,17 +2317,7 @@ const App = () => {
 
             {/* Mic & Image Analysis Buttons */}
             <div className="flex gap-2">
-              <button
-                onClick={isRecordingMic ? stopMicRecording : startMicRecording}
-                className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-medium transition-all border ${
-                  isRecordingMic
-                    ? 'bg-red-500/20 border-red-500 text-red-300 animate-mic-pulse'
-                    : 'bg-slate-800 border-white/10 text-slate-400 hover:bg-slate-700 hover:text-white'
-                }`}
-              >
-                <MicrophoneIcon className="w-4 h-4" />
-                {isRecordingMic ? 'Stop' : 'Speak Lyrics'}
-              </button>
+
 
               <label className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-medium bg-slate-800 border border-white/10 text-slate-400 hover:bg-slate-700 hover:text-white cursor-pointer transition-all">
                 <EyeDropperIcon className="w-4 h-4" />
