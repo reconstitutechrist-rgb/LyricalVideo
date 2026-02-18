@@ -93,8 +93,6 @@ export const LyricalFlowWrapper: React.FC<LyricalFlowWrapperProps> = ({
   const [editMode, setEditMode] = useState(false);
   const [selectedLyricIndices, setSelectedLyricIndices] = useState<Set<number>>(new Set());
 
-
-
   // Merge visual settings with section overrides based on current time
   const mergedVisualSettings = useMemo(() => {
     return getMergedSettingsForTime(state.currentTime, state.lyrics, state.visualSettings);
@@ -325,8 +323,6 @@ export const LyricalFlowWrapper: React.FC<LyricalFlowWrapperProps> = ({
     },
     [setState]
   );
-
-
 
   // ========================================
   // Edit Mode Handlers
@@ -723,17 +719,20 @@ export const LyricalFlowWrapper: React.FC<LyricalFlowWrapperProps> = ({
     }
   }, [state.isPlaying, audioRef]);
 
-  // Update current time from audio
+  // Update current time from audio using rAF for frame-accurate sync (~60fps vs ~4Hz timeupdate)
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
 
-    const handleTimeUpdate = () => {
-      setState((prev) => ({ ...prev, currentTime: audio.currentTime }));
+    let rafId: number;
+    const tick = () => {
+      if (!audio.paused) {
+        setState((prev) => ({ ...prev, currentTime: audio.currentTime }));
+      }
+      rafId = requestAnimationFrame(tick);
     };
-
-    audio.addEventListener('timeupdate', handleTimeUpdate);
-    return () => audio.removeEventListener('timeupdate', handleTimeUpdate);
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
   }, [audioRef, setState]);
 
   // Sync selection state to lyricsStore for AI control system
@@ -818,7 +817,6 @@ export const LyricalFlowWrapper: React.FC<LyricalFlowWrapperProps> = ({
       onParticleTrailsToggle={handleParticleTrailsToggle}
       onBlendModeChange={handleBlendModeChange}
       onFrequencyMappingChange={handleFrequencyMappingChange}
-
       onImageAnalysis={onImageAnalysis}
       // Callbacks - Edit Mode
       onEditModeToggle={handleEditModeToggle}

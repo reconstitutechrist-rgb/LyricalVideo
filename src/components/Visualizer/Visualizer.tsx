@@ -25,6 +25,7 @@ import { EffectContext, LyricEffectContext } from '../../effects/core/Effect';
 import { BeatDetector, BeatData } from '../../../services/beatDetectionService';
 import { Easings } from '../../effects/utils/MathUtils';
 import { useAudioStore } from '../../stores';
+import { useBeatMapStore } from '../../stores/beatMapStore';
 import { WebGLParticleRenderer, ParticleData } from '../../renderers';
 
 interface VisualizerProps {
@@ -356,8 +357,8 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
 
         // Sync with audio element periodically to avoid drift
         const elementTime = audio.currentTime;
-        if (Math.abs(preciseTime - elementTime) > 0.1) {
-          // Re-sync if drift exceeds 100ms
+        if (Math.abs(preciseTime - elementTime) > 0.02) {
+          // Re-sync if drift exceeds 20ms (was 100ms — too large for beat-accurate sync)
           audioContextStartTimeRef.current = audioCtxTime;
           audioElementStartTimeRef.current = elementTime;
           return elementTime;
@@ -461,6 +462,15 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
         };
         audio.addEventListener('timeupdate', handleTimeUpdate);
 
+        // Re-sync precise time refs on play/resume to prevent drift accumulation
+        const handlePlay = () => {
+          if (audioContextRef.current) {
+            audioContextStartTimeRef.current = audioContextRef.current.currentTime;
+            audioElementStartTimeRef.current = audio.currentTime;
+          }
+        };
+        audio.addEventListener('play', handlePlay);
+
         const AudioContextClass = window.AudioContext || window.webkitAudioContext;
         const audioCtx = new AudioContextClass();
         audioContextRef.current = audioCtx;
@@ -488,6 +498,7 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
 
         return () => {
           audio.removeEventListener('timeupdate', handleTimeUpdate);
+          audio.removeEventListener('play', handlePlay);
           audio.pause();
           audioCtx.close();
         };
@@ -852,9 +863,21 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
         const trebleSlice = dataArrayRef.current.slice(100, 255);
         trebleFreq = trebleSlice.reduce((a, b) => a + b, 0) / trebleSlice.length;
 
-        // Beat detection analysis
-        const audioTime = audioRef.current?.currentTime || 0;
-        beatDataRef.current = beatDetectorRef.current.analyze(dataArrayRef.current, audioTime);
+        // Beat detection analysis — use preciseTime for frame-accurate sync
+        beatDataRef.current = beatDetectorRef.current.analyze(dataArrayRef.current, preciseTime);
+
+        // Overlay precomputed beat map for more accurate beat detection when available
+        const beatMapState = useBeatMapStore.getState();
+        if (beatMapState.beatMap) {
+          const precomputedBeat = beatMapState.getBeatAt(preciseTime);
+          if (precomputedBeat && Math.abs(precomputedBeat.time - preciseTime) < 0.05) {
+            beatDataRef.current = {
+              ...beatDataRef.current,
+              isBeat: true,
+              beatIntensity: Math.max(beatDataRef.current.beatIntensity, precomputedBeat.intensity),
+            };
+          }
+        }
       }
 
       const getFreqValue = (band: FrequencyBand): number => {
@@ -1883,7 +1906,8 @@ const Visualizer = forwardRef<HTMLCanvasElement, VisualizerProps>(
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [
       lyrics,
-      currentTime,
+      // currentTime intentionally excluded — draw reads latest time via getPreciseCurrentTime()
+      // Including it would restart the rAF loop ~60fps, causing frame drops and state loss
       style,
       aspectRatio,
       width,
